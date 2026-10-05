@@ -1,0 +1,43 @@
+[project]
+name = 'graphpad-prism'
+version = '0.1.0'
+description = 'Create GraphPad Prism style graphs from Excel data sheets.'
+requires-python = '>=3.14'
+dependencies = ['matplotlib>=3.11', 'openpyxl>=3.1', 'pandas>=3.0']
+
+[tool.ruff]
+line-length = 120
+target-version = 'py314'
+src = ['src', 'tests']
+
+[tool.ruff.format]
+quote-style = 'single'
+
+[tool.ruff.lint]
+select = ['E', 'W', 'F', 'I', 'UP', 'B', 'SIM', 'RUF', 'ANN', 'D']
+ignore = ['D203', 'D213']
+
+[tool.ruff.lint.per-file-ignores]
+'tests/*' = ['D103', 'ANN401']
+
+[tool.mypy]
+python_version = '3.14'
+strict = true
+warn_unreachable = true
+files = ['src']
+
+# pandas and matplotlib ship no stubs here; the reader is the only module that touches them.
+[[tool.mypy.overrides]]
+module = ['pandas.*', 'matplotlib.*']
+ignore_missing_imports = true
+
+# The Tk embedding layer is untyped in matplotlib and tkinter, so calling into it cannot
+# satisfy strict mode. Only the window and the modules it is split into use these, and the
+# calls are checked by hand.
+[[tool.mypy.overrides]]
+module = ['src.app', 'src.ui.*']
+disallow_untyped_calls = false
+
+[tool.pytest.ini_options]
+testpaths = ['tests']
+addopts = '-n 4'
