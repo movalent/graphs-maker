@@ -458,6 +458,22 @@ def test_move_sample_ignores_a_bad_index(state: AppState) -> None:
     assert state.visible_order == before
 
 
+def test_move_samples_shifts_each_selected_sample_down(state: AppState) -> None:
+    assert state.move_samples((0, 2), 1) == ('42C', 'Control', 'Third', 'Other')
+
+
+def test_move_samples_shifts_each_selected_sample_up(state: AppState) -> None:
+    assert state.move_samples((1, 3), -1) == ('42C', 'Control', 'Third', 'Other')
+
+
+def test_move_samples_keeps_adjacent_selection_in_relative_order(state: AppState) -> None:
+    assert state.move_samples((1, 2), -1) == ('42C', 'Other', 'Control', 'Third')
+
+
+def test_move_samples_leaves_boundary_rows_in_place(state: AppState) -> None:
+    assert state.move_samples((0, 2), -1) == ('Control', 'Other', '42C', 'Third')
+
+
 def test_moving_onto_itself_changes_nothing(state: AppState) -> None:
     assert state.move_sample(1, 1) == state.visible_order
 

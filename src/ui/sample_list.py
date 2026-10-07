@@ -205,7 +205,7 @@ class SampleListMixin(_AppBase):
             self._refresh_list()
         self._select_row(bounded)
     def _move_selected(self, delta: int) -> None:
-        """Move the selected sample one row up or down.
+        """Move each selected sample one row up or down.
 
         Args:
             delta: ``-1`` to move up, ``1`` to move down.
@@ -214,8 +214,17 @@ class SampleListMixin(_AppBase):
         selected = self._selected_indices()
         if not selected:
             return
-        index = selected[0]
-        self._move_rows(index, index + delta)
+        order = self.state.visible_order
+        moved_order = self.state.move_samples(selected, delta)
+        if moved_order != order:
+            self._refresh_list()
+            self.listbox.selection_remove(self.listbox.selection())
+            moved_indices = tuple(min(max(index + delta, 0), len(order) - 1) for index in selected)
+            self._apply_indices(moved_indices)
+            self.listbox.focus(self._row_id(moved_indices[0]))
+            self.listbox.see(self._row_id(moved_indices[0]))
+            self._show_selected_color()
+            self._show_selected_style()
         self.redraw()
     def _on_row_selected(self, _event: object = None) -> None:
         """Refresh the panels for the samples that are now highlighted."""

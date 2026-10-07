@@ -233,6 +233,33 @@ class AppState:
         self.config.sample_order = tuple(order)
         return self.config.sample_order
 
+    def move_samples(self, indices: Sequence[int], delta: int) -> tuple[str, ...]:
+        """Shift selected samples one position while preserving their relative order.
+
+        Args:
+            indices: Current positions of the selected samples.
+            delta: ``-1`` to move up or ``1`` to move down.
+
+        Returns:
+            The resulting sample order.
+
+        """
+        order = list(self.visible_order)
+        selected = sorted({index for index in indices if 0 <= index < len(order)})
+        if delta not in (-1, 1):
+            raise ValueError('delta must be -1 or 1')
+        positions = selected if delta == -1 else selected[::-1]
+
+        for index in positions:
+            target = index + delta
+            if 0 <= target < len(order):
+                order[index], order[target] = order[target], order[index]
+
+        result = tuple(order)
+        if result != self.visible_order:
+            self.config.sample_order = result
+        return result
+
     def set_color(self, name: str, color: str) -> bool:
         """Set an explicit colour for one sample.
 

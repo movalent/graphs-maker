@@ -1492,6 +1492,16 @@ def test_clicking_the_arrow_buttons_reorders(app: GraphPadApp) -> None:
     assert app.state.visible_order[0] == '42C'
     up.invoke()
     assert app.state.visible_order[0] == 'Control'
+    _select_rows(app, 0, 2)
+    up.invoke()
+    assert app.state.visible_order == ('Control', 'B', '42C')
+    assert app._selected_indices() == (0, 1)
+    mapping = getattr(app.canvas.figure, 'sample_by_bar', {})
+    bars = app.canvas.figure.axes[0].containers[0]
+    assert [mapping[id(bar)] for bar in bars] == list(app.state.visible_order)
+    down.invoke()
+    assert app.state.visible_order == ('42C', 'Control', 'B')
+    assert app._selected_indices() == (1, 2)
 
 
 def test_the_arrow_buttons_get_a_usable_width(app: GraphPadApp) -> None:
@@ -3148,7 +3158,6 @@ def test_the_boxes_come_back_unticked_when_the_selection_empties(blank_app: Grap
     blank_app._apply_indices(())
     blank_app.root.update()
     assert blank_app.connect_series_var.get() is False
-
 
 
 
