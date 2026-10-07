@@ -31,11 +31,17 @@ class _TabManager:
         self._current_tab: str = ''
         self._switch_callback: callable = None
 
-    def _build(self, header: ttk.Frame, switch_callback: callable) -> dict[str, tk.Frame]:
+    def _build(
+        self,
+        header: ttk.Frame,
+        content_parent: ttk.Frame,
+        switch_callback: callable,
+    ) -> dict[str, tk.Frame]:
         """Build the tab buttons and content frames.
 
         Args:
             header: The fixed header frame for tab buttons.
+            content_parent: The scrollable container for tab content.
             switch_callback: Called with tab name when selection changes.
 
         Returns:
@@ -50,7 +56,7 @@ class _TabManager:
         self._tab_frames = {}
 
         for name in self._tab_names:
-            content_frame = ttk.Frame(padding=6)
+            content_frame = ttk.Frame(content_parent, padding=6)
             self._tab_frames[name] = content_frame
 
             btn = ttk.Button(
@@ -173,18 +179,15 @@ class ShellMixin(_AppBase):
         header = ttk.Frame(panel)
         header.pack(side=tk.TOP, fill=tk.X)
         self._build_color_row(header)
-        self._build_tabs(header)
 
         # Scrollable body holds only the active tab's content
         body = ttk.Frame(panel)
         body.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
         self._scroll_body(body)
 
-        # Now that the scrollable body exists, show the tab content
-        self._show_tab_content()
+        # Tab content must be a real child of the canvas inner frame so the canvas clips it.
+        self._build_tabs(header)
 
-        # Initial tab content
-        self._show_tab_content()
     def _build_action_buttons(self, panel: ttk.Frame) -> None:
         """Create the buttons that stay pinned to the bottom of the panel.
 
@@ -242,6 +245,26 @@ class ShellMixin(_AppBase):
         canvas.bind('<Configure>', lambda e: canvas.itemconfigure(window, width=e.width))
         self._body_canvas = canvas
         self._body_inner = inner
+
+    def _on_body_wheel(self, event: tk.Event[tk.Misc]) -> str:
+        """Scroll active options only when they extend beyond the visible body.
+
+        Args:
+            event: The mouse wheel event over an active tab control.
+
+        Returns:
+            ``'break'`` so the event cannot trigger another canvas binding.
+
+        """
+        bounds = self._body_canvas.bbox('all')
+        if bounds is None or bounds[3] - bounds[1] <= self._body_canvas.winfo_height():
+            self._body_canvas.yview_moveto(0)
+            return 'break'
+        units = wheel_units(event)
+        if units:
+            self._body_canvas.yview_scroll(units, 'units')
+        return 'break'
+
     def _build_tabs(self, header: ttk.Frame) -> None:
         """Create the tab buttons in the fixed header and content frames for the scrollable body.
 
@@ -254,7 +277,7 @@ class ShellMixin(_AppBase):
 
         """
         self._tab_manager = _TabManager(('General', 'Axis', 'Plot style', 'Data preview'))
-        self._tab_frames = self._tab_manager._build(header, self._switch_tab)
+        self._tab_frames = self._tab_manager._build(header, self._body_inner, self._switch_tab)
 
         # Build content into the frames
         self._build_general_tab(self._tab_frames['General'])
@@ -294,7 +317,7 @@ class ShellMixin(_AppBase):
         active_frame = None
         for name, frame in self._tab_frames.items():
             if name == self._current_tab:
-                frame.pack(in_=self._body_inner, fill=tk.BOTH, expand=True)
+                frame.pack(fill=tk.BOTH, expand=True)
                 active_frame = frame
             else:
                 frame.pack_forget()
@@ -302,11 +325,10 @@ class ShellMixin(_AppBase):
         if active_frame:
             active_frame.update_idletasks()
             # Bind wheel to the active frame and its children
-            bind_wheel(active_frame, lambda e: self._body_canvas.yview_scroll(wheel_units(e), 'units'))
-            # Get the required height of the active frame
-            req_height = active_frame.winfo_reqheight()
-            canvas_width = self._body_canvas.winfo_width()
-            self._body_canvas.configure(scrollregion=(0, 0, canvas_width, req_height))
+            bind_wheel(active_frame, self._on_body_wheel)
+            self._body_inner.update_idletasks()
+            self._body_canvas.configure(scrollregion=self._body_canvas.bbox('all'))
+            self._body_canvas.yview_moveto(0)
         else:
             self._body_inner.update_idletasks()
             self._body_canvas.configure(scrollregion=self._body_canvas.bbox('all'))

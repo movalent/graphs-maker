@@ -1590,6 +1590,76 @@ def test_the_notebook_does_not_reserve_the_tallest_tab_for_all_of_them(app: Grap
     assert heights['Data preview'] < heights['Plot style']
 
 
+def test_tab_content_is_a_child_of_the_scrollable_body(app: GraphPadApp) -> None:
+    """Canvas clipping must contain the tab content instead of letting it cover fixed controls."""
+    for index in range(app.tabs.index('end')):
+        assert _tab_frame(app, index).master is app._body_inner
+
+
+def test_switching_tabs_returns_options_to_the_top(app: GraphPadApp) -> None:
+    """A new tab starts at its first option instead of inheriting a stale scroll offset."""
+    _show_style_tab(app)
+    app._body_canvas.yview_moveto(1)
+    app.root.update()
+    assert app._body_canvas.yview()[0] > 0
+
+    app.tabs.select(1)
+    app.root.update()
+
+    assert app._body_canvas.yview()[0] == 0
+
+
+def test_scrolling_up_does_not_leave_blank_space_above_options(app: GraphPadApp) -> None:
+    """Scrolling back to the top aligns the options with the top of the scrollable body."""
+    _show_style_tab(app)
+    canvas = app._body_canvas
+    canvas.yview_moveto(1)
+    app.root.update()
+    style = _tab_frame(app, 2)
+    for _ in range(40):
+        style.event_generate('<MouseWheel>', delta=120)
+    app.root.update()
+
+    assert canvas.yview()[0] == 0
+    assert style.winfo_rooty() == canvas.winfo_rooty()
+
+
+def test_general_options_stay_at_the_top_after_scrolling_up(app: GraphPadApp) -> None:
+    """Returning to the top of General must place the first setting below the tab header."""
+    _show_style_tab(app)
+    app._body_canvas.yview_moveto(1)
+    app.root.update()
+    app.tabs.select(0)
+    app.root.update()
+
+    general = _tab_frame(app, 0)
+    first_option = next(child for child in general.winfo_children() if child.winfo_manager())
+    for _ in range(20):
+        general.event_generate('<MouseWheel>', delta=120)
+    app.root.update()
+
+    assert app._body_canvas.yview()[0] == 0
+    assert general.winfo_rooty() == app._body_canvas.winfo_rooty()
+    assert first_option.winfo_rooty() == general.winfo_rooty() + 6
+
+
+def test_data_preview_ignores_wheel_when_content_fits(app: GraphPadApp) -> None:
+    """Upward wheel input on a short tab must not shift its options down in the viewport."""
+    app.tabs.select(3)
+    app.root.update()
+    preview = _tab_frame(app, 3)
+    first_option = next(child for child in preview.winfo_children() if child.winfo_manager())
+    assert app._body_canvas.bbox('all')[3] <= app._body_canvas.winfo_height()
+
+    for _ in range(8):
+        preview.event_generate('<MouseWheel>', delta=120)
+    app.root.update()
+
+    assert app._body_canvas.yview()[0] == 0
+    assert preview.winfo_rooty() == app._body_canvas.winfo_rooty()
+    assert first_option.winfo_rooty() == preview.winfo_rooty() + 6
+
+
 def test_the_swatch_shows_the_selected_colour(app: GraphPadApp) -> None:
     app._select_row(0)
     assert str(app.swatch.cget('background')).lower() == app.state.color_of('Control').lower()
@@ -1626,6 +1696,20 @@ def test_the_sample_list_stays_put_when_the_options_scroll(app: GraphPadApp) -> 
     app.root.update()
     assert app.listbox.winfo_rooty() == top
     assert app.listbox.winfo_ismapped()
+
+
+def test_the_scrollable_body_stays_below_the_sample_list(app: GraphPadApp) -> None:
+    """Scrolling the tab must not move its viewport over the fixed sample list."""
+    _show_style_tab(app)
+    list_top = app.listbox.winfo_rooty()
+    body_top = app._body_canvas.winfo_rooty()
+    assert body_top >= list_top + app.listbox.winfo_height()
+
+    app._body_canvas.yview_moveto(1)
+    app.root.update()
+
+    assert app.listbox.winfo_rooty() == list_top
+    assert app._body_canvas.winfo_rooty() == body_top
 
 
 def test_the_axis_fields_show_the_automatic_values(app: GraphPadApp) -> None:
@@ -1979,6 +2063,7 @@ def test_enlarging_the_window_does_not_grow_the_graph(app: GraphPadApp) -> None:
 def test_action_buttons_are_visible_at_the_default_size(app: GraphPadApp) -> None:
     """Reset, Save PNG and Save PDF were squeezed to a few pixels when the window was short."""
     _settle(app, 1100, 720)
+    _show_style_tab(app)
     labels = {'Reset', 'Save PNG…', 'Save PDF…'}
     found = {
         str(child.cget('text')): child
@@ -1986,8 +2071,15 @@ def test_action_buttons_are_visible_at_the_default_size(app: GraphPadApp) -> Non
         if child.winfo_class() == 'TButton' and str(child.cget('text')) in labels
     }
     assert set(found) == labels
+    before = {label: button.winfo_rooty() for label, button in found.items()}
     for label, button in found.items():
         assert button.winfo_height() >= 20, f'{label} is squashed to {button.winfo_height()}px'
+    app._body_canvas.yview_moveto(1)
+    app.root.update()
+    panel_bottom = app.panel.winfo_rooty() + app.panel.winfo_height()
+    for label, button in found.items():
+        assert button.winfo_rooty() == before[label]
+        assert button.winfo_rooty() + button.winfo_height() <= panel_bottom
 
 
 def test_action_buttons_survive_a_short_window(app: GraphPadApp) -> None:
@@ -3158,7 +3250,3 @@ def test_the_boxes_come_back_unticked_when_the_selection_empties(blank_app: Grap
     blank_app._apply_indices(())
     blank_app.root.update()
     assert blank_app.connect_series_var.get() is False
-
-
-
-
