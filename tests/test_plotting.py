@@ -89,6 +89,13 @@ def axes_of(figure: Figure) -> Axes:
     return figure.axes[0]
 
 
+def test_the_figure_has_a_border_around_its_outer_boundary(simple_dataset: Dataset) -> None:
+    figure = plot_dataset(simple_dataset)
+
+    assert colors.to_hex(figure.patch.get_edgecolor()) == '#000000'
+    assert figure.patch.get_linewidth() == pytest.approx(DEFAULT_LINE_WIDTH)
+
+
 def test_a_connected_series_is_drawn_in_its_own_colour(scatter_dataset: Dataset) -> None:
     """The line joining a series' points is that series' colour, not the next one along.
 

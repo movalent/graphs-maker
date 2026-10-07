@@ -325,4 +325,10 @@ def new_figure(width: float = 6.4, height: float = 4.8) -> Figure:
 
     """
     apply_graphpad_style()
-    return Figure(figsize=(width, height), dpi=100, facecolor='#ffffff')
+    return Figure(
+        figsize=(width, height),
+        dpi=100,
+        facecolor='#ffffff',
+        edgecolor='#000000',
+        linewidth=DEFAULT_LINE_WIDTH,
+    )

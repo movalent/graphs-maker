@@ -2030,8 +2030,8 @@ def test_no_toolbar_widget_is_packed_anywhere(app: GraphPadApp) -> None:
     assert not toolbars(app.root)
 
 
-def test_graph_keeps_a_fixed_size_whatever_the_window_does(app: GraphPadApp) -> None:
-    """The graph must not resize with the window, which is what caused the cut off bars."""
+def test_graph_never_grows_past_its_natural_size(app: GraphPadApp) -> None:
+    """The graph can shrink to fit, but never grows beyond its natural dimensions."""
     for width, height in ((1000, 700), (1200, 800), (900, 640)):
         _settle(app, width, height)
         app.redraw()
@@ -2058,6 +2058,17 @@ def test_enlarging_the_window_does_not_grow_the_graph(app: GraphPadApp) -> None:
     _settle(app, 1700, 950)
     app.redraw()
     assert tuple(app.canvas.figure.get_size_inches()) == pytest.approx(before)
+
+
+def test_resizing_keeps_the_graph_ratio_and_restores_natural_size(app: GraphPadApp) -> None:
+    """A smaller window shrinks the graph uniformly and a larger one restores its size."""
+    _settle(app, 700, 600)
+    small_size = tuple(float(value) for value in app.canvas.figure.get_size_inches())
+    assert small_size[0] / small_size[1] == pytest.approx(4 / 3, abs=0.01)
+
+    _settle(app, 1100, 720)
+    natural_size = tuple(float(value) for value in app.canvas.figure.get_size_inches())
+    assert natural_size == pytest.approx((6.4, 4.8), abs=0.02)
 
 
 def test_action_buttons_are_visible_at_the_default_size(app: GraphPadApp) -> None:

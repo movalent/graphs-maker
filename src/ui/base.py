@@ -73,8 +73,10 @@ class _AppBase:
     # The canvas holding the scrollable column of options, which the wheel is bound to.
     _body_canvas: tk.Canvas
     tabs: ttk.Notebook
+    _canvas_area: ttk.Frame
     figure: Figure
     canvas: FigureCanvasTkAgg
+    _natural_figure_size: tuple[float, float]
     # The grid of the worksheet below the graph, and the caption saying what is read from it.
     sheet: SheetView
     sheet_caption: ttk.Label
@@ -417,5 +419,4 @@ class _AppBase:
             _event: Unused; the fields apply the values themselves.
 
         """
-
 

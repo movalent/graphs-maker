@@ -79,9 +79,9 @@ class DataPaneMixin(_AppBase):
     def _build_canvas(self) -> None:
         """Create the embedded figure canvas and the data preview beneath it.
 
-        The canvas is not bound to the window size. The graph keeps a fixed size and is
-        centred in whatever space the canvas has, so resizing the window can never leave a
-        stale drawing behind or push the bars on the right out of view.
+        The canvas sits in a resize-aware area. Its figure keeps its natural size where it
+        fits, shrinks uniformly when the area is smaller, and stays centred as the window
+        changes size.
 
         There is no navigation toolbar. Its home, pan, zoom and save buttons duplicate the
         save buttons in the panel, and panning or zooming a graph that is deliberately held
@@ -89,36 +89,54 @@ class DataPaneMixin(_AppBase):
         """
         body = ttk.Frame(self.root)
         body.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
-        self.canvas = FigureCanvasTkAgg(Figure(), master=body)
+        self._canvas_area = ttk.Frame(body)
+        self._canvas_area.pack(fill=tk.BOTH, expand=True)
+        self.canvas = FigureCanvasTkAgg(Figure(), master=self._canvas_area)
+        natural_width, natural_height = (float(value) for value in self.canvas.figure.get_size_inches())
+        self._natural_figure_size = natural_width, natural_height
         # The pick handler is connected by redraw, because every new figure replaces the
         # canvas callback registry and takes the connection with it.
-        self.canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+        self.canvas.get_tk_widget().place(relx=0.5, rely=0.5, anchor=tk.CENTER)
+        self._canvas_area.bind('<Configure>', self._on_canvas_resize)
         self._build_sheet_pane(body)
-    def _size_to_canvas(self, figure: Figure) -> None:
-        """Centre the fixed size graph in the canvas without letting it grow.
+    def _size_to_canvas(self, figure: Figure, width: int, height: int) -> None:
+        """Centre the figure and shrink it uniformly only when the canvas is too small.
 
-        The figure is scaled to fit the canvas when the canvas is smaller, so nothing is
-        ever cut off, and centred with a margin when it is larger. In the common case the
-        canvas is comfortably bigger and the graph simply sits in the middle at its natural
-        size, which is what keeps the bars and the legend readable.
+        The natural dimensions are saved separately because a fitted figure's own dimensions
+        are smaller. Reusing those reduced dimensions on the next resize would make the
+        graph shrink again even when more room became available.
 
         Args:
-            figure: The freshly drawn figure to size.
+            figure: The figure to size.
+            width: Available width in pixels.
+            height: Available height in pixels.
 
         """
-        widget = self.canvas.get_tk_widget()
-        width, height = widget.winfo_width(), widget.winfo_height()
         if width <= 1 or height <= 1:
             return
         dpi = figure.dpi
-        natural_w, natural_h = (float(value) for value in figure.get_size_inches())
+        natural_w, natural_h = self._natural_figure_size
         fit = min(width / dpi / natural_w, height / dpi / natural_h, 1.0)
-        figure.set_size_inches(natural_w * fit, natural_h * fit)
+        canvas_width = max(1, round(natural_w * dpi * fit))
+        canvas_height = max(1, round(natural_h * dpi * fit))
+        self.canvas.get_tk_widget().configure(width=canvas_width, height=canvas_height)
+        figure.set_size_inches(canvas_width / dpi, canvas_height / dpi, forward=False)
+
+    def _on_canvas_resize(self, event: tk.Event[tk.Misc]) -> None:
+        """Fit and centre the figure when the space around it changes size.
+
+        Args:
+            event: The resize event for the area holding the embedded canvas.
+
+        """
+        self._size_to_canvas(self.canvas.figure, event.width, event.height)
+
     def redraw(self, mark_dirty: bool = True) -> None:
         """Rebuild the figure from the current state and show it.
 
-        The graph keeps a fixed size, so a control change can never shrink it or leave part
-        of the previous drawing showing through.
+        The figure returns to its natural dimensions before being fitted to the available
+        area, so a control change or a later larger window cannot leave it accidentally
+        shrunken from an earlier resize.
 
         ``draw_idle`` coalesces rapid changes, such as dragging the spread slider, into a
         single repaint instead of redrawing on every intermediate value.
@@ -130,7 +148,9 @@ class DataPaneMixin(_AppBase):
 
         """
         figure = plot_dataset(self.state.dataset, self.state.config)
-        self._size_to_canvas(figure)
+        natural_width, natural_height = (float(value) for value in figure.get_size_inches())
+        self._natural_figure_size = natural_width, natural_height
+        self._size_to_canvas(figure, self._canvas_area.winfo_width(), self._canvas_area.winfo_height())
         # The canvas has to be told about the new figure, not just the other way round.
         # Assigning ``canvas.figure`` alone leaves ``figure.canvas`` pointing at the figure
         # the canvas was built with, and every artist then looks like it belongs to a
@@ -705,5 +725,3 @@ class DataPaneMixin(_AppBase):
             self.decimals_var.set(str(chosen))
         self.state.config.preview_decimals = chosen
         self.sheet.set_decimals(chosen)
-
-
