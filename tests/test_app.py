@@ -259,15 +259,23 @@ def test_grouping_asks_for_a_sample(app: GraphPadApp) -> None:
     assert app.state.groups() == ('A', 'C')
 
 
-def test_ungrouping_restores_the_worksheet_group(app: GraphPadApp) -> None:
+def test_ungrouping_splits_the_selected_samples_into_their_own_groups(app: GraphPadApp) -> None:
     _select_rows(app, 0, 2)
     app.merge_name_var.set('Together')
     app._group_selection()
     _select_rows(app, 0, 2)
     app._ungroup_selection()
-    assert app.state.group_of('Control') == 'A'
-    assert app.state.group_of('B') == 'C'
-    assert app.state.groups() == ('A', 'C')
+    assert app.state.group_of('Control') == 'Control'
+    assert app.state.group_of('B') == 'B'
+    assert app.state.groups() == ('Control', 'A', 'B')
+
+
+def test_ungrouping_splits_samples_from_a_default_worksheet_group(app: GraphPadApp) -> None:
+    _select_rows(app, 0, 1)
+    app._ungroup_selection()
+    assert app.state.group_of('Control') == 'Control'
+    assert app.state.group_of('42C') == '42C'
+    assert app.state.groups() == ('Control', '42C', 'C')
 
 
 def test_ungrouping_asks_for_a_sample(app: GraphPadApp) -> None:
@@ -1876,10 +1884,12 @@ def test_a_group_becomes_listed_once_it_holds_several(app: GraphPadApp) -> None:
     assert set(app.group_vars) == {'C'}
 
 
-def test_a_group_disappears_when_it_drops_to_one(app: GraphPadApp) -> None:
+def test_empty_group_list_shows_one_message_after_repeated_refreshes(app: GraphPadApp) -> None:
     app.state.set_group('42C', 'Solo')
     app._refresh_groups()
+    app._refresh_groups()
     assert set(app.group_vars) == set()
+    assert [child.cget('text') for child in app.group_list.winfo_children()] == ['No groups present']
 
 
 def test_merging_two_groups_from_the_window(grouped_app: GraphPadApp) -> None:

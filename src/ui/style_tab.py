@@ -321,7 +321,7 @@ class StyleTabMixin(_AppBase):
             self.state.set_group(sample, name)
         self._after_grouping_changed()
     def _ungroup_selection(self, _event: object = None) -> None:
-        """Drop the group override of every highlighted sample, restoring the worksheet group.
+        """Move every highlighted sample into a group of its own.
 
         Args:
             _event: Unused; the button applies the grouping itself.
@@ -330,7 +330,7 @@ class StyleTabMixin(_AppBase):
         if self.syncing:
             return
         for sample in self._selected_samples():
-            self.state.set_group(sample, '')
+            self.state.split_sample(sample)
         self._after_grouping_changed()
     def _after_grouping_changed(self) -> None:
         """Refresh everything that shows the grouping after it has been edited.
@@ -348,8 +348,8 @@ class StyleTabMixin(_AppBase):
         A group of one is not a grouping, so it is left off the list rather than offered as
         something that could be merged.
         """
-        for check in self.group_checks:
-            check.destroy()
+        for child in self.group_list.winfo_children():
+            child.destroy()
         self.group_checks.clear()
         self.group_vars = {}
         for group in self.state.multi_groups():
@@ -359,7 +359,7 @@ class StyleTabMixin(_AppBase):
             self.group_vars[group] = variable
             self.group_checks.append(check)
         if not self.group_vars:
-            ttk.Label(self.group_list, text='No groups of more than one', font=('Segoe UI', 8)).pack(anchor=tk.W)
+            ttk.Label(self.group_list, text='No groups present', font=('Segoe UI', 8)).pack(anchor=tk.W)
     def _ticked_groups(self) -> tuple[str, ...]:
         """Return the groups whose checkbox is ticked."""
         return tuple(group for group, variable in self.group_vars.items() if variable.get())
@@ -824,5 +824,3 @@ class StyleTabMixin(_AppBase):
                 self.state.set_color(name, chosen[1])
             self._refresh_list()
             self.redraw()
-
-
