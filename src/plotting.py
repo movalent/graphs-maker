@@ -563,8 +563,8 @@ def _left_margin(config: PlotConfig) -> float:
 def _apply_title(fig: Figure, ax: Axes, config: PlotConfig) -> None:
     """Write the plot title above the graph, inside the figure.
 
-    The title is placed in figure coordinates rather than as the axes title, and is hung above
-    the legend from the top of the figure, so that neither can push it off the canvas.
+    The title is placed in figure coordinates rather than as the axes title. With a legend
+    above the graph it is hung above the legend; without one it sits just above the axes.
 
     Where it hangs is measured from the legend itself rather than worked out from the margins.
     A legend's height depends on how many rows its names wrap onto and on the font they are
@@ -586,8 +586,11 @@ def _apply_title(fig: Figure, ax: Axes, config: PlotConfig) -> None:
     title_height_in = height * FIGURE_HEIGHT
     ceiling = 1.0 - (TITLE_TOP_GAP / 72.0 + title_height_in) / figure_height
     if legend is None:
-        # With no legend the title simply sits at the top of the figure.
-        bottom = ceiling
+        # The plot takes back the legend band when there is no legend, so the title follows
+        # the plot instead of staying behind at the top edge of the figure.
+        axes_top = ax.get_position().y1
+        bottom = axes_top + TITLE_LEGEND_GAP * FIGURE_HEIGHT / figure_height
+        bottom = min(bottom, ceiling)
     else:
         # The legend is drawn in the band above the plot, so its own top edge is where the
         # title has to start. The figure is drawn first, because the legend's extent is only

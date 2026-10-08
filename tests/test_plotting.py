@@ -825,6 +825,24 @@ def test_the_title_is_centred_above_the_graph(simple_dataset: Dataset) -> None:
     assert (box.x0 + box.x1) / 2 == pytest.approx((position.x0 + position.x1) / 2 * figure.bbox.width, abs=2)
 
 
+def test_a_title_sits_just_above_the_plot_without_a_legend(
+    simple_dataset: Dataset,
+    scatter_dataset: Dataset,
+) -> None:
+    """Hiding the legend leaves the title above the plot, not at the canvas edge."""
+    cases = (
+        (simple_dataset, PlotConfig(title='Growth rate', show_legend=False)),
+        (scatter_dataset, PlotConfig(chart='scatter', title='Dose response', show_legend=False)),
+    )
+    for dataset, config in cases:
+        figure = plot_dataset(dataset, config)
+        figure.canvas.draw()
+        title = plot_title_of(figure)
+        assert title is not None
+        gap_inches = (title.get_window_extent().y0 - axes_of(figure).get_window_extent().y1) / figure.dpi
+        assert 0 <= gap_inches <= 0.15
+
+
 @pytest.mark.parametrize('shown', [True, False])
 def test_the_title_fits_above_or_below_a_legend(simple_dataset: Dataset, shown: bool) -> None:
     """With or without a legend in the way, the title stays on the canvas.
