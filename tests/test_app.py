@@ -2807,6 +2807,34 @@ def test_the_list_names_the_scatter_series(blank_app: GraphPadApp) -> None:
     assert shown == list(blank_app.state.series_names)
 
 
+def test_scatter_arrow_buttons_reorder_series_and_legend(blank_app: GraphPadApp) -> None:
+    _scatter(blank_app)
+    frame = next(child for child in blank_app.listbox.master.winfo_children() if child.winfo_class() == 'TFrame')
+    up, down = frame.winfo_children()
+    before = blank_app.state.entry_order
+    blank_app._select_row(0)
+    down.invoke()
+
+    expected = (before[1], before[0], *before[2:])
+    assert blank_app.state.entry_order == expected
+    assert column_values(blank_app, 'sample') == list(expected)
+    mapping = getattr(blank_app.canvas.figure, 'sample_by_bar', {})
+    lines = blank_app.canvas.figure.axes[0].lines
+    assert [mapping[id(line)] for line in lines] == list(expected)
+    legend = blank_app.canvas.figure.axes[0].get_legend()
+    assert legend is not None
+    assert [text.get_text() for text in legend.get_texts()] == list(expected)
+
+    blank_app.chart_var.set('Bar graph')
+    blank_app._update_chart()
+    blank_app.chart_var.set('Scatter plot')
+    blank_app._update_chart()
+    assert blank_app.state.entry_order == expected
+    blank_app._select_row(1)
+    up.invoke()
+    assert blank_app.state.entry_order == before
+
+
 def test_clicking_a_point_selects_its_series(blank_app: GraphPadApp) -> None:
     """A click resolved the name against the sample list, which a series is not in."""
     _scatter(blank_app)

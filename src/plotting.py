@@ -1166,7 +1166,7 @@ def plot_scatter(dataset: Dataset, config: PlotConfig | None = None) -> Figure:
 
     """
     settings = config or PlotConfig()
-    series = dataset.series
+    series = dataset.ordered_series(settings.series_order)
     if not series or not dataset.points:
         return new_figure()
 

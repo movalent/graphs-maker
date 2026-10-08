@@ -103,6 +103,8 @@ class AppState:
         dataset: The experiment read from the input file.
         config: Current presentation settings, mutated in place by the controls.
         sheet_order: Sample names in their original worksheet order, restored by :meth:`reset`.
+        sheet_series_order: Scatter-series names in their original worksheet order, restored
+            by :meth:`reset`.
         columns: Worksheet columns currently read, zero based and counting the label
             column, or ``None`` when every measured column is read. The data preview sets
             this, so a column can be left out of the graph without editing the sheet.
@@ -121,17 +123,19 @@ class AppState:
         self.config = config or PlotConfig()
         self.columns: tuple[int, ...] | None = None
         self.sheet_order = tuple(sample.name for sample in dataset.samples)
+        self.sheet_series_order = tuple(series.name for series in dataset.series)
         if not self.config.sample_order:
             # No explicit order was supplied, so start from the worksheet order. A supplied
             # one is kept, because the command line can pass a partial order through.
             self.config.sample_order = self.sheet_order
+        if not self.config.series_order:
+            self.config.series_order = self.sheet_series_order
 
     def replace_dataset(self, dataset: Dataset) -> None:
         """Swap in a freshly read dataset, keeping the current settings.
 
-        The chosen sample order and the colours are kept, but names that are no longer
-        present are dropped, so unticking a column in the data preview leaves the rest of
-        the graph exactly as it was rather than resetting it.
+        The chosen sample and scatter-series orders are kept, but names that are no longer
+        present are dropped. Newly present names follow the replacement dataset order.
 
         Args:
             dataset: The dataset read with the new column selection.
@@ -139,10 +143,15 @@ class AppState:
         """
         self.dataset = dataset
         present = {sample.name for sample in dataset.samples}
+        present_series = {series.name for series in dataset.series}
         self.sheet_order = tuple(sample.name for sample in dataset.samples)
+        self.sheet_series_order = tuple(series.name for series in dataset.series)
         self.config.sample_order = tuple(name for name in self.config.sample_order if name in present)
         if not self.config.sample_order:
             self.config.sample_order = self.sheet_order
+        self.config.series_order = tuple(name for name in self.config.series_order if name in present_series)
+        if not self.config.series_order:
+            self.config.series_order = self.sheet_series_order
         # Colours and overrides are keyed by sample name, so the ones belonging to a
         # column that has just been removed would linger and be reused if it came back.
         for mapping in (self.config.colors, self.config.edge_colors, self.config.hatches, self.config.group_overrides):
@@ -171,17 +180,17 @@ class AppState:
 
     @property
     def series_names(self) -> tuple[str, ...]:
-        """Return the scatter series names, in drawing order.
+        """Return the scatter series names, in their current drawing order.
 
         A scatter sheet holds no samples at all: its columns are paired x and y values
         rather than replicates of one condition. Everything the window does for a sample
         therefore needs a scatter equivalent, and this is the list it works from.
 
         Returns:
-            One name per series, in worksheet order.
+            One name per series, in configured drawing order.
 
         """
-        return tuple(series.name for series in self.dataset.series)
+        return tuple(series.name for series in self.dataset.ordered_series(self.config.series_order))
 
     @property
     def entry_order(self) -> tuple[str, ...]:
@@ -258,6 +267,38 @@ class AppState:
         result = tuple(order)
         if result != self.visible_order:
             self.config.sample_order = result
+        return result
+
+    def move_entries(self, indices: Sequence[int], delta: int) -> tuple[str, ...]:
+        """Shift the selected entries of the active chart one position.
+
+        Bar charts move samples; scatter charts move series. Each chart kind keeps its own
+        order so changing chart type does not overwrite the other kind's arrangement.
+
+        Args:
+            indices: Current positions of the selected entries.
+            delta: ``-1`` to move up or ``1`` to move down.
+
+        Returns:
+            The resulting entry order.
+
+        """
+        if self.config.chart != 'scatter':
+            return self.move_samples(indices, delta)
+        order = list(self.series_names)
+        selected = sorted({index for index in indices if 0 <= index < len(order)})
+        if delta not in (-1, 1):
+            raise ValueError('delta must be -1 or 1')
+        positions = selected if delta == -1 else selected[::-1]
+
+        for index in positions:
+            target = index + delta
+            if 0 <= target < len(order):
+                order[index], order[target] = order[target], order[index]
+
+        result = tuple(order)
+        if self.series_names != result:
+            self.config.series_order = result
         return result
 
     def set_color(self, name: str, color: str) -> bool:
@@ -567,7 +608,7 @@ class AppState:
         return chosen if chosen is not None else DEFAULT_LINE_WIDTH
 
     def reset(self) -> None:
-        """Discard every adjustment, including the sample order, and restore the defaults.
+        """Discard every adjustment, including both entry orders, and restore the defaults.
 
         The original worksheet order and grouping are restored rather than what happened to
         be showing, so a reset really does undo everything the user changed.
@@ -612,3 +653,4 @@ class AppState:
         self.config.point_labels = False
         self.config.label_series = ()
         self.config.sample_order = self.sheet_order
+        self.config.series_order = self.sheet_series_order

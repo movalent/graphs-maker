@@ -1157,6 +1157,15 @@ def test_a_scatter_plot_names_every_series_in_the_legend(scatter_dataset: Datase
     assert [text.get_text() for text in ax.get_legend().get_texts()] == ['S1', 'S2']
 
 
+def test_a_scatter_plot_uses_configured_series_order(scatter_dataset: Dataset) -> None:
+    figure = plot_dataset(scatter_dataset, PlotConfig(chart='scatter', series_order=('S2', 'S1')))
+    ax = axes_of(figure)
+
+    assert [text.get_text() for text in ax.get_legend().get_texts()] == ['S2', 'S1']
+    assert list(ax.lines[0].get_xdata()) == [point.x for point in scatter_dataset.series[1].points]
+    assert list(ax.lines[1].get_xdata()) == [point.x for point in scatter_dataset.series[0].points]
+
+
 def test_a_scatter_plot_is_not_pinned_to_a_zero_baseline(scatter_dataset: Dataset) -> None:
     """A point has no length, so a zero baseline would leave most of the graph empty.
 

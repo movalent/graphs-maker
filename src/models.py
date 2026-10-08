@@ -268,6 +268,27 @@ class Dataset:
         rest = [sample for sample in self.samples if sample.name not in requested]
         return tuple(picked + rest)
 
+    def ordered_series(self, order: Sequence[str] | None = None) -> tuple[XYSeries, ...]:
+        """Return the scatter series reordered according to ``order``.
+
+        Names that are not part of ``order`` keep their relative worksheet order and are
+        appended at the end, so a partially specified order is always accepted.
+
+        Args:
+            order: Desired series order, by series name.
+
+        Returns:
+            The reordered scatter series.
+
+        """
+        if not order:
+            return self.series
+        by_name = {series.name: series for series in self.series}
+        requested = set(order)
+        picked = [by_name[name] for name in order if name in by_name]
+        rest = [series for series in self.series if series.name not in requested]
+        return tuple(picked + rest)
+
 
 @dataclass(slots=True)
 class PlotConfig:
@@ -285,6 +306,7 @@ class PlotConfig:
         group_overrides: Group each sample is drawn under, by sample name. This lets samples
             be regrouped without touching the data that was read from the worksheet.
         sample_order: Desired sample order, by sample name.
+        series_order: Desired scatter-series order, by series name.
         log_axis: Render the value axis on a logarithmic scale.
         title: Optional figure title.
         title_position: Where the title is written relative to the plot, which is centred
@@ -415,3 +437,4 @@ class PlotConfig:
     connect_series: tuple[str, ...] = ()
     point_labels: bool = False
     label_series: tuple[str, ...] = ()
+    series_order: tuple[str, ...] = ()

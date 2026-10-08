@@ -6,7 +6,7 @@ import matplotlib
 import pytest
 from src.app_state import DEFAULT_LINE_WIDTH, AppState, normalize_hex
 from src.graphpad_style import DEFAULT_PALETTE, palette_colors
-from src.models import LOG_HEADROOM, Y_MAX_HEADROOM, Dataset, PlotConfig, Sample
+from src.models import LOG_HEADROOM, Y_MAX_HEADROOM, Dataset, PlotConfig, Sample, XYPoint, XYSeries
 
 
 @pytest.fixture
@@ -472,6 +472,60 @@ def test_move_samples_keeps_adjacent_selection_in_relative_order(state: AppState
 
 def test_move_samples_leaves_boundary_rows_in_place(state: AppState) -> None:
     assert state.move_samples((0, 2), -1) == ('Control', 'Other', '42C', 'Third')
+
+
+def test_move_entries_uses_independent_scatter_order() -> None:
+    dataset = Dataset(
+        samples=(Sample('A', 'Group', (1.0,)), Sample('B', 'Group', (2.0,))),
+        series=(
+            XYSeries('S1', (XYPoint(1.0, 3.0),)),
+            XYSeries('S2', (XYPoint(1.0, 4.0),)),
+        ),
+    )
+    state = AppState(dataset)
+    state.config.chart = 'scatter'
+
+    assert state.move_entries((0,), 1) == ('S2', 'S1')
+    assert state.config.sample_order == ('A', 'B')
+    assert state.series_names == ('S2', 'S1')
+
+    state.config.chart = 'bar'
+    assert state.move_entries((0,), 1) == ('B', 'A')
+    assert state.config.series_order == ('S2', 'S1')
+
+    state.config.chart = 'scatter'
+    assert state.entry_order == ('S2', 'S1')
+
+
+def test_replacing_scatter_dataset_keeps_present_order_and_appends_new_series() -> None:
+    original = Dataset(
+        samples=(),
+        series=(XYSeries('S1'), XYSeries('S2')),
+    )
+    state = AppState(original, PlotConfig(series_order=('S2', 'S1')))
+    replacement = Dataset(
+        samples=(),
+        series=(XYSeries('S1'), XYSeries('S2'), XYSeries('S3')),
+    )
+
+    state.replace_dataset(replacement)
+
+    assert state.series_names == ('S2', 'S1', 'S3')
+
+
+def test_reset_restores_the_scatter_sheet_order() -> None:
+    dataset = Dataset(
+        samples=(),
+        series=(XYSeries('S1'), XYSeries('S2')),
+    )
+    state = AppState(dataset)
+    state.config.chart = 'scatter'
+    state.move_entries((0,), 1)
+
+    state.reset()
+
+    assert state.config.series_order == ('S1', 'S2')
+    assert state.series_names == ('S1', 'S2')
 
 
 def test_moving_onto_itself_changes_nothing(state: AppState) -> None:

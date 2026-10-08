@@ -205,7 +205,7 @@ class SampleListMixin(_AppBase):
             self._refresh_list()
         self._select_row(bounded)
     def _move_selected(self, delta: int) -> None:
-        """Move each selected sample one row up or down.
+        """Move each selected entry one row up or down.
 
         Args:
             delta: ``-1`` to move up, ``1`` to move down.
@@ -214,8 +214,8 @@ class SampleListMixin(_AppBase):
         selected = self._selected_indices()
         if not selected:
             return
-        order = self.state.visible_order
-        moved_order = self.state.move_samples(selected, delta)
+        order = self.state.entry_order
+        moved_order = self.state.move_entries(selected, delta)
         if moved_order != order:
             self._refresh_list()
             self.listbox.selection_remove(self.listbox.selection())
