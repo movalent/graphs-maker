@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, replace
 from typing import Literal
@@ -72,6 +73,7 @@ TITLE_HEIGHT_FACTOR = 1.4
 # The height of a Prism figure in inches. Every margin in this module is a share of it, so a
 # measurement given in points has to be converted through it.
 FIGURE_HEIGHT = 4.8
+FIGURE_WIDTH = 6.4
 # The right hand margin a legend beside the plot leaves for itself, as a share of the
 # figure width. The names are measured and the rest of the width is the plot's.
 LEGEND_RIGHT_MARGIN = 0.80
@@ -112,6 +114,14 @@ DEFAULT_LABEL_SIZE = 9.0
 # room they need is reserved there rather than along the bottom.
 LEFT_MARGIN = 0.30
 RIGHT_MARGIN = 0.98
+# The surrounding canvas reserves enough physical room for the largest supported margins:
+# rotated labels and groups on one side, an outside legend or series labels on the other,
+# and the renderer's maximum top and bottom bands. These are capacities, not per-graph
+# measurements, so moving a legend or adding a title never changes the overall figure size.
+CANVAS_LEFT_IN = (LEFT_MARGIN + 2 * ROTATION_MARGIN) * FIGURE_WIDTH
+CANVAS_RIGHT_IN = max(LABEL_MARGIN_CAP, 1.0 - LEGEND_RIGHT_MARGIN) * FIGURE_WIDTH
+CANVAS_BOTTOM_IN = (BOTTOM_MARGIN + 2 * ROTATION_MARGIN) * FIGURE_HEIGHT
+CANVAS_TOP_IN = (1.0 - MIN_TOP_MARGIN) * FIGURE_HEIGHT
 # A scatter point is drawn larger than a replicate point, because it is the data itself
 # rather than a detail sitting on top of a bar.
 DEFAULT_POINT_SIZE = 6.0
@@ -570,9 +580,11 @@ def _apply_title(fig: Figure, ax: Axes, config: PlotConfig) -> None:
     """
     if not config.title:
         return
-    legend = ax.get_legend()
+    legend = ax.get_legend() if legend_above(config) else None
     height = _title_height(config)
-    ceiling = 1.0 - TITLE_TOP_GAP / 72.0 / FIGURE_HEIGHT - height
+    figure_height = float(fig.get_size_inches()[1])
+    title_height_in = height * FIGURE_HEIGHT
+    ceiling = 1.0 - (TITLE_TOP_GAP / 72.0 + title_height_in) / figure_height
     if legend is None:
         # With no legend the title simply sits at the top of the figure.
         bottom = ceiling
@@ -582,7 +594,7 @@ def _apply_title(fig: Figure, ax: Axes, config: PlotConfig) -> None:
         # known once it has been laid out.
         fig.canvas.draw()
         legend_top = legend.get_window_extent().y1 / fig.bbox.height
-        bottom = min(legend_top + TITLE_LEGEND_GAP, ceiling)
+        bottom = min(legend_top + TITLE_LEGEND_GAP * FIGURE_HEIGHT / figure_height, ceiling)
     text = fig.text(
         (ax.get_position().x0 + ax.get_position().x1) / 2,
         bottom,
@@ -597,6 +609,74 @@ def _apply_title(fig: Figure, ax: Axes, config: PlotConfig) -> None:
         text.set_fontfamily(_usable_font(config.title_font))
     # The axes title is cleared so a title is never drawn twice, once here and once there.
     ax.set_title('')
+
+
+def _fix_axes_dimensions(fig: Figure, ax: Axes, config: PlotConfig) -> None:
+    """Grow the figure around the requested physical plotting-area dimensions.
+
+    The axes position already accounts for the margins reserved by the renderer. Scaling the
+    whole figure from that final position keeps the axes at their chosen physical size while
+    leaving those margins and their artists outside the plot.
+
+    Args:
+        fig: Figure whose overall size is to be adjusted.
+        ax: Axes whose physical width and height are fixed.
+        config: Settings holding the requested lengths in centimeters.
+
+    Raises:
+        ValueError: If either requested length is not a finite positive number.
+
+    """
+    position = ax.get_position()
+    width, height = position.width, position.height
+    if width <= 0 or height <= 0:
+        raise ValueError('The plot margins leave no room for the axes.')
+    figure_width, figure_height = _canvas_size(config)
+    left_in = position.x0 * FIGURE_WIDTH
+    bottom_in = position.y0 * FIGURE_HEIGHT
+    axis_width_in = config.x_axis_length_cm / 2.54
+    axis_height_in = config.y_axis_length_cm / 2.54
+    if left_in + axis_width_in > figure_width or bottom_in + axis_height_in > figure_height:
+        raise ValueError('The reserved plot margins exceed the available figure canvas.')
+    fig.set_size_inches(figure_width, figure_height)
+    ax.set_position(
+        (
+            left_in / figure_width,
+            bottom_in / figure_height,
+            axis_width_in / figure_width,
+            axis_height_in / figure_height,
+        )
+    )
+
+
+def _canvas_size(config: PlotConfig) -> tuple[float, float]:
+    """Return the fixed overall figure size for the configured axes and margin capacities.
+
+    Args:
+        config: Settings holding the requested physical axis lengths.
+
+    Returns:
+        Figure width and height in inches.
+
+    Raises:
+        ValueError: If either requested length is not a finite positive number.
+
+    """
+    width_cm = config.x_axis_length_cm
+    height_cm = config.y_axis_length_cm
+    if not math.isfinite(width_cm) or width_cm <= 0:
+        raise ValueError('The X axis length must be a finite positive number of centimeters.')
+    if not math.isfinite(height_cm) or height_cm <= 0:
+        raise ValueError('The Y axis length must be a finite positive number of centimeters.')
+    return (
+        CANVAS_LEFT_IN + width_cm / 2.54 + CANVAS_RIGHT_IN,
+        CANVAS_BOTTOM_IN + height_cm / 2.54 + CANVAS_TOP_IN,
+    )
+
+
+def _empty_figure(config: PlotConfig) -> Figure:
+    """Create a blank figure using the same fixed canvas as a graph with these settings."""
+    return new_figure(*_canvas_size(config))
 
 
 def _title_height(config: PlotConfig) -> float:
@@ -996,7 +1076,7 @@ def plot_bars(dataset: Dataset, config: PlotConfig | None = None) -> Figure:
     settings = config or PlotConfig()
     samples = dataset.ordered(settings.sample_order)
     if not samples:
-        return new_figure()
+        return _empty_figure(settings)
 
     apply_graphpad_style()
     fig = new_figure()
@@ -1135,6 +1215,7 @@ def plot_bars(dataset: Dataset, config: PlotConfig | None = None) -> Figure:
         )
     # The title is written last, because it is placed from the margins just set rather than
     # from the axes, and those are only final here.
+    _fix_axes_dimensions(fig, ax, settings)
     _apply_title(fig, ax, settings)
     return fig
 
@@ -1168,7 +1249,7 @@ def plot_scatter(dataset: Dataset, config: PlotConfig | None = None) -> Figure:
     settings = config or PlotConfig()
     series = dataset.ordered_series(settings.series_order)
     if not series or not dataset.points:
-        return new_figure()
+        return _empty_figure(settings)
 
     apply_graphpad_style()
     fig = new_figure()
@@ -1257,6 +1338,7 @@ def plot_scatter(dataset: Dataset, config: PlotConfig | None = None) -> Figure:
             # are not allowed to shrink the plot a second time for the same space.
             margins.pop('right', None)
         fig.subplots_adjust(**margins)
+    _fix_axes_dimensions(fig, ax, settings)
     # The title is written last, because it is placed from the margins just set rather than
     # from the axes, and those are only final here.
     _apply_title(fig, ax, settings)

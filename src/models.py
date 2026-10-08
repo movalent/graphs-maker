@@ -59,6 +59,10 @@ TitlePosition = Literal['center']
 TITLE_POSITIONS: tuple[TitlePosition, ...] = ('center',)
 TITLE_LABELS: dict[TitlePosition, str] = {'center': 'Centered above the graph'}
 DEFAULT_TITLE_POSITION: TitlePosition = 'center'
+# Physical plotting-area dimensions shown in the Axis tab. Keeping them in the shared
+# settings means the renderer and the interactive controls use the same starting size.
+DEFAULT_X_AXIS_LENGTH_CM = 9.0
+DEFAULT_Y_AXIS_LENGTH_CM = 8.0
 # The font family every piece of text is drawn with unless a family is chosen for it. It is the
 # family the renderer prefers, so a panel left untouched shows the font the graph is really
 # using rather than a default that was never applied. It is taken from that preference list
@@ -372,6 +376,8 @@ class PlotConfig:
         x_max: Upper limit of the x axis, or ``None`` to let matplotlib frame the points.
         x_major_step: Spacing of the x axis major ticks, or ``None`` for automatic.
             A bar graph has no x values to scale, so these describe a scatter plot only.
+        x_axis_length_cm: Physical width of the plotting area, in centimeters.
+        y_axis_length_cm: Physical height of the plotting area, in centimeters.
         connect_series: Scatter series whose points are joined by a line, by name. An
             empty tuple joins none of them, which is how a single series can be connected
             while its neighbours stay as points.
@@ -434,6 +440,8 @@ class PlotConfig:
     preview_decimals: int | None = DEFAULT_DECIMALS
     x_max: float | None = None
     x_major_step: float | None = None
+    x_axis_length_cm: float = DEFAULT_X_AXIS_LENGTH_CM
+    y_axis_length_cm: float = DEFAULT_Y_AXIS_LENGTH_CM
     connect_series: tuple[str, ...] = ()
     point_labels: bool = False
     label_series: tuple[str, ...] = ()

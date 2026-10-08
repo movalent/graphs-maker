@@ -297,7 +297,7 @@ def rc_params() -> dict[str, Any]:
         'figure.dpi': 100,
         'figure.facecolor': '#ffffff',
         'savefig.dpi': 300,
-        'savefig.bbox': 'tight',
+        'savefig.bbox': None,
         'savefig.facecolor': '#ffffff',
         'mathtext.default': 'regular',
     }

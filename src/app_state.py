@@ -16,6 +16,8 @@ from src.models import (
     DEFAULT_LEGEND_POSITION,
     DEFAULT_POINT_TYPE,
     DEFAULT_TITLE_POSITION,
+    DEFAULT_X_AXIS_LENGTH_CM,
+    DEFAULT_Y_AXIS_LENGTH_CM,
     LOG_HEADROOM,
     POINT_TYPES,
     Y_MAX_HEADROOM,
@@ -645,6 +647,8 @@ class AppState:
         self.config.preview_decimals = DEFAULT_DECIMALS
         self.config.x_max = None
         self.config.x_major_step = None
+        self.config.x_axis_length_cm = DEFAULT_X_AXIS_LENGTH_CM
+        self.config.y_axis_length_cm = DEFAULT_Y_AXIS_LENGTH_CM
         self.config.label_rotation = 0.0
         self.config.x_label_override = None
         self.config.point_type = DEFAULT_POINT_TYPE

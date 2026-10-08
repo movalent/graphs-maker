@@ -1291,6 +1291,49 @@ def test_reset_restores_the_sheet_y_title(app: GraphPadApp) -> None:
     assert app.canvas.figure.axes[0].get_ylabel() == 'Value'
 
 
+def test_axis_lengths_update_and_reject_nonpositive_values(app: GraphPadApp) -> None:
+    app.x_axis_length_var.set('10.5')
+    app.y_axis_length_var.set('0')
+    app._update_axis_lengths()
+
+    assert app.state.config.x_axis_length_cm == 10.5
+    assert app.state.config.y_axis_length_cm == 8.0
+    assert app.x_axis_length_var.get() == '10.5'
+    assert app.y_axis_length_var.get() == '8'
+
+
+def test_reset_restores_default_axis_lengths(app: GraphPadApp) -> None:
+    app.x_axis_length_var.set('12')
+    app.y_axis_length_var.set('6')
+    app._update_axis_lengths()
+    app._reset()
+
+    assert app.state.config.x_axis_length_cm == 9.0
+    assert app.state.config.y_axis_length_cm == 8.0
+    assert app.x_axis_length_var.get() == '9'
+    assert app.y_axis_length_var.get() == '8'
+
+
+def test_saving_uses_the_natural_figure_size(
+    app: GraphPadApp,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    saved_sizes: list[tuple[float, float]] = []
+    figure = app.canvas.figure
+    natural_size = app._natural_figure_size
+    figure.set_size_inches(natural_size[0] * 0.75, natural_size[1] * 0.75, forward=False)
+
+    def record_save_size(_path: Path) -> None:
+        saved_sizes.append(tuple(float(value) for value in figure.get_size_inches()))
+
+    monkeypatch.setattr(figure, 'savefig', record_save_size)
+    monkeypatch.setattr(shell.filedialog, 'asksaveasfilename', lambda **_kwargs: str(tmp_path / 'graph.pdf'))
+    app._save('pdf')
+
+    assert saved_sizes == [natural_size]
+
+
 def test_each_setting_sits_on_the_tab_it_belongs_to(app: GraphPadApp) -> None:
     general = _captions_in(_tab_frame(app, 0))
     axis = _captions_in(_tab_frame(app, 1))
@@ -1307,8 +1350,24 @@ def test_each_setting_sits_on_the_tab_it_belongs_to(app: GraphPadApp) -> None:
 
     # The Axis tab is split into one block per axis, each with its own name, range and font.
     # The rotation sits with the x axis, whose labels are the ones long enough to need it.
-    assert {'X axis', 'X max', 'X step', 'X axis type', 'X tick text size', 'Label rotation'} <= axis
-    assert {'Y axis', 'Y max', 'Y step', 'Y axis type', 'Y tick text size', 'Y title text size'} <= axis
+    assert {
+        'X axis',
+        'X max',
+        'X step',
+        'X axis type',
+        'X tick text size',
+        'X axis length (cm)',
+        'Label rotation',
+    } <= axis
+    assert {
+        'Y axis',
+        'Y max',
+        'Y step',
+        'Y axis type',
+        'Y tick text size',
+        'Y axis length (cm)',
+        'Y title text size',
+    } <= axis
     # The line width and the label family draw both axes, so they sit above the two blocks
     # rather than inside either of them.
     assert {'Axis line width', 'Axis font type'} <= axis
@@ -1379,12 +1438,17 @@ def test_the_title_reaches_the_graph_in_the_window(app: GraphPadApp) -> None:
 
 
 def test_the_legend_position_reaches_the_graph_in_the_window(app: GraphPadApp) -> None:
-    """Choosing a position moves the legend rather than only recording the choice."""
-    above = app.canvas.figure.axes[0].get_position().x1
+    """Choosing a position moves the legend without changing the figure's size."""
+    natural_size = app._natural_figure_size
     app.legend_position_var.set('Right of graph')
     app._update_legend_position()
     assert app.state.config.legend_position == 'right'
-    assert app.canvas.figure.axes[0].get_position().x1 < above
+    assert app._natural_figure_size == natural_size
+    app.canvas.draw()
+    axes = app.canvas.figure.axes[0]
+    legend = axes.get_legend()
+    assert legend is not None
+    assert legend.get_window_extent().x0 >= axes.get_window_extent().x1
 
 
 def test_an_unknown_legend_position_falls_back_to_the_default(app: GraphPadApp) -> None:
@@ -2051,24 +2115,32 @@ def test_graph_never_exceeds_the_canvas(app: GraphPadApp) -> None:
 
 
 def test_enlarging_the_window_does_not_grow_the_graph(app: GraphPadApp) -> None:
-    """The graph is fixed, so a bigger window gives more space around it, never a bigger graph."""
+    """Resizing the preview does not change the natural size used to render and export."""
     _settle(app, 1100, 720)
     app.redraw()
-    before = tuple(app.canvas.figure.get_size_inches())
+    before = app._natural_figure_size
     _settle(app, 1700, 950)
     app.redraw()
-    assert tuple(app.canvas.figure.get_size_inches()) == pytest.approx(before)
+    assert app._natural_figure_size == pytest.approx(before)
+    display_size = tuple(float(value) for value in app.canvas.figure.get_size_inches())
+    assert display_size[0] <= before[0]
+    assert display_size[1] <= before[1]
 
 
 def test_resizing_keeps_the_graph_ratio_and_restores_natural_size(app: GraphPadApp) -> None:
-    """A smaller window shrinks the graph uniformly and a larger one restores its size."""
+    """The fixed canvas keeps its aspect ratio as the window allows it to grow or shrink."""
     _settle(app, 700, 600)
     small_size = tuple(float(value) for value in app.canvas.figure.get_size_inches())
-    assert small_size[0] / small_size[1] == pytest.approx(4 / 3, abs=0.01)
+    natural_width, natural_height = app._natural_figure_size
+    assert small_size[0] / small_size[1] == pytest.approx(natural_width / natural_height, abs=0.01)
 
     _settle(app, 1100, 720)
-    natural_size = tuple(float(value) for value in app.canvas.figure.get_size_inches())
-    assert natural_size == pytest.approx((6.4, 4.8), abs=0.02)
+    larger_size = tuple(float(value) for value in app.canvas.figure.get_size_inches())
+    assert larger_size[0] / larger_size[1] == pytest.approx(natural_width / natural_height, abs=0.01)
+    assert larger_size[0] >= small_size[0]
+    assert larger_size[1] >= small_size[1]
+    assert larger_size[0] <= natural_width
+    assert larger_size[1] <= natural_height
 
 
 def test_action_buttons_are_visible_at_the_default_size(app: GraphPadApp) -> None:

@@ -367,7 +367,14 @@ class ShellMixin(_AppBase):
             return
         path = Path(target)
         path.parent.mkdir(parents=True, exist_ok=True)
-        self.canvas.figure.savefig(path)
+        figure = self.canvas.figure
+        display_width, display_height = (float(value) for value in figure.get_size_inches())
+        figure.set_size_inches(*self._natural_figure_size, forward=False)
+        try:
+            figure.savefig(path)
+        finally:
+            figure.set_size_inches(display_width, display_height, forward=False)
+            self.canvas.draw_idle()
         self.output_hint = path
         self.last_dir = str(path.parent)
         self.dirty = False

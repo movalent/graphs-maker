@@ -125,6 +125,7 @@ class _AppBase:
     x_title_entry: ttk.Entry
     x_max_var: tk.StringVar
     x_step_var: tk.StringVar
+    x_axis_length_var: tk.StringVar
     x_max_entry: ttk.Entry
     x_step_entry: ttk.Entry
     x_tick_font_var: tk.StringVar
@@ -133,6 +134,7 @@ class _AppBase:
     rotation_var: tk.StringVar
     rotation_entry: ttk.Spinbox
     y_title_var: tk.StringVar
+    y_axis_length_var: tk.StringVar
     y_max_var: tk.StringVar
     y_step_var: tk.StringVar
     y_label_size_var: tk.StringVar
@@ -419,4 +421,3 @@ class _AppBase:
             _event: Unused; the fields apply the values themselves.
 
         """
-

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import itertools
+import struct
 from dataclasses import replace
 from pathlib import Path
 
@@ -49,11 +50,8 @@ from src.plotting import (
     BOTTOM_MARGIN,
     DEFAULT_LINE_WIDTH,
     INTER_GROUP_GAP,
-    NO_LEGEND_TOP_MARGIN,
     POINT_FACE,
-    RIGHT_MARGIN,
     SAMPLE_LABEL_FONT,
-    TOP_MARGIN,
     compute_layout,
     plot_dataset,
 )
@@ -87,6 +85,18 @@ def simple_dataset() -> Dataset:
 
 def axes_of(figure: Figure) -> Axes:
     return figure.axes[0]
+
+
+def axes_size_cm(figure: Figure) -> tuple[float, float]:
+    axes = axes_of(figure).get_position()
+    width, height = figure.get_size_inches()
+    return axes.width * width * 2.54, axes.height * height * 2.54
+
+
+def axes_bounds_inches(figure: Figure) -> tuple[float, float, float, float]:
+    axes = axes_of(figure).get_position()
+    width, height = figure.get_size_inches()
+    return axes.x0 * width, axes.y0 * height, axes.x1 * width, axes.y1 * height
 
 
 def test_the_figure_has_a_border_around_its_outer_boundary(simple_dataset: Dataset) -> None:
@@ -313,10 +323,12 @@ def test_a_turned_name_stays_under_its_own_bar(simple_dataset: Dataset) -> None:
 
 def test_turning_the_names_gives_the_plot_more_room_at_the_bottom(simple_dataset: Dataset) -> None:
     """Turned names reach further down, so the plot has to start higher up."""
-    upright = axes_of(plot_dataset(simple_dataset)).get_position().y0
-    turned = axes_of(plot_dataset(simple_dataset, PlotConfig(label_rotation=90))).get_position()
-    assert upright == pytest.approx(BOTTOM_MARGIN)
-    assert turned.y0 > upright
+    upright_figure = plot_dataset(simple_dataset)
+    turned_figure = plot_dataset(simple_dataset, PlotConfig(label_rotation=90))
+    upright = axes_bounds_inches(upright_figure)[1]
+    turned = axes_bounds_inches(turned_figure)[1]
+    assert upright == pytest.approx(BOTTOM_MARGIN * 4.8)
+    assert turned > upright
 
 
 def test_a_horizontal_graph_turns_its_names_too(simple_dataset: Dataset) -> None:
@@ -375,6 +387,103 @@ def scatter_dataset() -> Dataset:
         x_label='Dose',
         y_label='Response',
     )
+
+
+def test_axis_lengths_stay_fixed_as_decorations_expand_the_figure(
+    simple_dataset: Dataset,
+    scatter_dataset: Dataset,
+) -> None:
+    """Titles, legends, axis labels, group bands and right-side labels use outer space."""
+    cases = (
+        (
+            simple_dataset,
+            PlotConfig(show_legend=False),
+            PlotConfig(
+                title='Experiment',
+                show_legend=True,
+                legend_position='right',
+                grouped_layout=True,
+                label_rotation=45,
+            ),
+        ),
+        (
+            simple_dataset,
+            PlotConfig(orientation='horizontal', show_legend=False),
+            PlotConfig(
+                orientation='horizontal',
+                title='Experiment',
+                show_legend=True,
+                legend_position='right',
+                grouped_layout=True,
+            ),
+        ),
+        (
+            scatter_dataset,
+            PlotConfig(chart='scatter', show_legend=False),
+            PlotConfig(
+                chart='scatter',
+                title='Experiment',
+                show_legend=True,
+                legend_position='right',
+                point_labels=True,
+                label_series=('S1',),
+            ),
+        ),
+    )
+    for dataset, plain_config, decorated_config in cases:
+        plain = plot_dataset(dataset, plain_config)
+        decorated = plot_dataset(dataset, decorated_config)
+
+        assert axes_size_cm(plain) == pytest.approx((9.0, 8.0))
+        assert axes_size_cm(decorated) == pytest.approx((9.0, 8.0))
+        assert decorated.get_size_inches() == pytest.approx(plain.get_size_inches())
+
+
+def test_axis_lengths_can_be_set_independently(simple_dataset: Dataset) -> None:
+    figure = plot_dataset(
+        simple_dataset,
+        PlotConfig(x_axis_length_cm=11.5, y_axis_length_cm=6.25),
+    )
+    assert axes_size_cm(figure) == pytest.approx((11.5, 6.25))
+
+
+def test_changing_axis_lengths_changes_canvas_by_the_same_fixed_margins(simple_dataset: Dataset) -> None:
+    standard = plot_dataset(simple_dataset)
+    larger_axes = plot_dataset(simple_dataset, PlotConfig(x_axis_length_cm=12, y_axis_length_cm=10))
+
+    assert larger_axes.get_size_inches()[0] - standard.get_size_inches()[0] == pytest.approx(3 / 2.54)
+    assert larger_axes.get_size_inches()[1] - standard.get_size_inches()[1] == pytest.approx(2 / 2.54)
+
+
+def test_adding_data_does_not_change_the_canvas_size(simple_dataset: Dataset) -> None:
+    empty = replace(simple_dataset, samples=())
+    expanded = replace(
+        simple_dataset,
+        samples=tuple(
+            Sample(f'Sample {index}', 'A' if index < 6 else 'B', (10.0 + index, 12.0 + index))
+            for index in range(12)
+        ),
+    )
+    blank_figure = plot_dataset(empty)
+    standard_figure = plot_dataset(simple_dataset)
+    expanded_figure = plot_dataset(expanded, PlotConfig(title='Experiment'))
+
+    assert blank_figure.get_size_inches() == pytest.approx(standard_figure.get_size_inches())
+    assert expanded_figure.get_size_inches() == pytest.approx(standard_figure.get_size_inches())
+    expanded_figure.canvas.draw()
+    legend = axes_of(expanded_figure).get_legend()
+    title = plot_title_of(expanded_figure)
+    assert legend is not None and title is not None
+    assert legend.get_window_extent().y1 <= expanded_figure.bbox.height
+    assert title.get_window_extent().y1 <= expanded_figure.bbox.height
+    assert title.get_window_extent().y0 >= legend.get_window_extent().y1
+
+
+def test_invalid_axis_lengths_are_rejected(simple_dataset: Dataset) -> None:
+    with pytest.raises(ValueError, match='X axis length'):
+        plot_dataset(simple_dataset, PlotConfig(x_axis_length_cm=0.0))
+    with pytest.raises(ValueError, match='Y axis length'):
+        plot_dataset(simple_dataset, PlotConfig(y_axis_length_cm=float('inf')))
 
 
 def test_layout_gives_every_bar_a_position(simple_dataset: Dataset) -> None:
@@ -791,19 +900,23 @@ def test_a_titled_graph_keeps_its_legend_inside_the_figure(simple_dataset: Datas
 
 
 def test_an_untitled_graph_keeps_the_margins_it_always_had(simple_dataset: Dataset) -> None:
-    """Adding the title band must not move a graph that was not asking for one."""
+    """Showing or hiding the legend does not change the fixed plot or canvas size."""
     with_legend = plot_dataset(simple_dataset, PlotConfig(show_legend=True))
-    assert axes_of(with_legend).get_position().y1 == pytest.approx(TOP_MARGIN)
     without = plot_dataset(simple_dataset, PlotConfig(show_legend=False))
-    assert axes_of(without).get_position().y1 == pytest.approx(NO_LEGEND_TOP_MARGIN)
+    assert with_legend.get_size_inches() == pytest.approx(without.get_size_inches())
+    assert axes_bounds_inches(with_legend) == pytest.approx(axes_bounds_inches(without))
 
 
 def test_the_legend_goes_beside_the_graph_when_asked(simple_dataset: Dataset) -> None:
-    """A legend beside the plot is outside it, so the plot gives up the width for it."""
+    """A right legend stays outside the same-sized plot and fixed canvas."""
     above = plot_dataset(simple_dataset, PlotConfig(legend_position='above'))
     beside = plot_dataset(simple_dataset, PlotConfig(legend_position='right'))
-    assert axes_of(above).get_position().x1 == pytest.approx(RIGHT_MARGIN)
-    assert axes_of(beside).get_position().x1 < axes_of(above).get_position().x1
+    assert axes_size_cm(above) == pytest.approx(axes_size_cm(beside))
+    assert above.get_size_inches() == pytest.approx(beside.get_size_inches())
+    beside.canvas.draw()
+    legend = axes_of(beside).get_legend()
+    assert legend is not None
+    assert legend.get_window_extent().x0 >= axes_of(beside).get_window_extent().x1
 
 
 def test_the_legend_goes_inside_the_graph_when_asked(simple_dataset: Dataset) -> None:
@@ -814,10 +927,11 @@ def test_the_legend_goes_inside_the_graph_when_asked(simple_dataset: Dataset) ->
 
 
 def test_a_legend_beside_the_graph_needs_no_band_above_it(simple_dataset: Dataset) -> None:
-    """Moving the legend frees the band the title would otherwise have had to clear."""
+    """Moving the legend does not change the plot's position or overall canvas."""
     beside = plot_dataset(simple_dataset, PlotConfig(title='T', legend_position='right'))
     above = plot_dataset(simple_dataset, PlotConfig(title='T', legend_position='above'))
-    assert axes_of(beside).get_position().y1 > axes_of(above).get_position().y1
+    assert axes_bounds_inches(beside) == pytest.approx(axes_bounds_inches(above))
+    assert beside.get_size_inches() == pytest.approx(above.get_size_inches())
 
 
 def test_the_legend_font_type_is_applied(simple_dataset: Dataset) -> None:
@@ -858,7 +972,8 @@ def test_a_scatter_legend_can_go_beside_the_graph(scatter_dataset: Dataset) -> N
     """A scatter plot offers the same three positions as a bar graph."""
     above = plot_dataset(scatter_dataset, PlotConfig(chart='scatter'))
     beside = plot_dataset(scatter_dataset, PlotConfig(chart='scatter', legend_position='right'))
-    assert axes_of(beside).get_position().x1 < axes_of(above).get_position().x1
+    assert axes_size_cm(beside) == pytest.approx(axes_size_cm(above))
+    assert beside.get_size_inches() == pytest.approx(above.get_size_inches())
 
 
 def test_a_blank_font_size_keeps_the_default(simple_dataset: Dataset) -> None:
@@ -1008,6 +1123,22 @@ def test_cli_writes_a_png(tmp_path: Path) -> None:
     target = tmp_path / 'figure.png'
     assert main(['--input', str(INPUT_FILE), '--output', str(target), '--title', 'T']) == 0
     assert target.exists() and target.stat().st_size > 0
+
+
+def test_png_exports_keep_the_fixed_canvas_size(simple_dataset: Dataset, tmp_path: Path) -> None:
+    plain = plot_dataset(simple_dataset)
+    decorated = plot_dataset(simple_dataset, PlotConfig(title='Experiment', legend_position='right'))
+    plain_path = tmp_path / 'plain.png'
+    decorated_path = tmp_path / 'decorated.png'
+
+    plain.savefig(plain_path, dpi=100)
+    decorated.savefig(decorated_path, dpi=100)
+    plain_size = struct.unpack('>II', plain_path.read_bytes()[16:24])
+    decorated_size = struct.unpack('>II', decorated_path.read_bytes()[16:24])
+
+    assert decorated_size == plain_size
+
+
 def test_a_discrete_palette_is_read_from_the_front(simple_dataset: Dataset) -> None:
     """Okabe-Ito is a fixed list, so the graph must use its published order."""
     figure = plot_dataset(simple_dataset, PlotConfig(palette='okabe_ito'))
@@ -1344,17 +1475,24 @@ def test_no_labels_means_no_labels(scatter_dataset: Dataset) -> None:
 
 
 def test_the_plot_gives_up_the_legend_band_only_without_a_legend(scatter_dataset: Dataset) -> None:
-    """With a legend shown the plot has to stay out of its way."""
+    """The fixed canvas provides room for the legend without reducing the plot."""
     labelled = PlotConfig(chart='scatter', point_labels=True, label_series=('S1',))
     with_legend = axes_of(_scatter_figure(scatter_dataset, replace(labelled, show_legend=True)))
     without = axes_of(_scatter_figure(scatter_dataset, replace(labelled, show_legend=False)))
-    assert with_legend.get_position().y1 < without.get_position().y1
+    assert with_legend.get_position().y1 == pytest.approx(without.get_position().y1)
+    assert axes_size_cm(with_legend.figure) == pytest.approx(axes_size_cm(without.figure))
 
 
 def test_room_is_reserved_for_the_labels(scatter_dataset: Dataset) -> None:
-    """Without it the names are drawn past the edge of the figure and simply vanish."""
-    plain = axes_of(_scatter_figure(scatter_dataset, PlotConfig(chart='scatter')))
-    labelled = axes_of(
-        _scatter_figure(scatter_dataset, PlotConfig(chart='scatter', point_labels=True, label_series=('S1',)))
+    """The fixed outer canvas has room for labels without shrinking the plot."""
+    plain_figure = _scatter_figure(scatter_dataset, PlotConfig(chart='scatter'))
+    labelled_figure = _scatter_figure(
+        scatter_dataset,
+        PlotConfig(chart='scatter', point_labels=True, label_series=('S1',)),
     )
-    assert labelled.get_position().x1 < plain.get_position().x1
+    labelled_figure.canvas.draw()
+    labelled = axes_of(labelled_figure)
+    label = labelled.texts[0]
+    assert axes_size_cm(labelled_figure) == pytest.approx(axes_size_cm(plain_figure))
+    assert labelled_figure.get_size_inches() == pytest.approx(plain_figure.get_size_inches())
+    assert label.get_window_extent().x1 <= labelled_figure.bbox.width

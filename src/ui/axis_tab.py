@@ -10,6 +10,7 @@ one shape as the kind of graph changes and a value already typed into one is not
 
 from __future__ import annotations
 
+import math
 import tkinter as tk
 from tkinter import ttk
 
@@ -34,6 +35,12 @@ MAX_ROTATION = 180
 DEFAULT_ROTATION = 0
 
 
+def _positive_length(text: str, previous: float) -> float:
+    """Return a finite positive length, keeping the previous value for unfinished input."""
+    value = optional_number(text)
+    return value if value is not None and math.isfinite(value) and value > 0 else previous
+
+
 class AxisTabMixin(_AppBase):
     """The name, scale, range and fonts of each of the two axes."""
 
@@ -52,6 +59,8 @@ class AxisTabMixin(_AppBase):
         # value, so a field left alone is never read as a request to fix the axis there.
         self.x_max_var.set('' if config.x_max is None else f'{config.x_max:g}')
         self.x_step_var.set('' if config.x_major_step is None else f'{config.x_major_step:g}')
+        self.x_axis_length_var.set(f'{config.x_axis_length_cm:g}')
+        self.y_axis_length_var.set(f'{config.y_axis_length_cm:g}')
         # Each axis shows the size it will actually draw with, which is its own where it has
         # one and the shared size otherwise, so a field never reads as a choice that is
         # quietly not in effect.
@@ -128,6 +137,9 @@ class AxisTabMixin(_AppBase):
         self.x_axis_type_var = tk.StringVar(value=AXIS_TYPES[0])
         self.x_axis_type_combo = dropdown_row(box, 'X axis type', self.x_axis_type_var, AXIS_TYPES, None)
 
+        self.x_axis_length_var = tk.StringVar()
+        number_row(box, 'X axis length (cm)', self.x_axis_length_var, self._update_axis_lengths)
+
         # The rotation belongs to the x axis because that is where a label long enough to
         # need turning sits: the sample names along the bottom. The value axis carries a
         # single number, which stays readable upright however long the name above it is.
@@ -175,6 +187,9 @@ class AxisTabMixin(_AppBase):
         # of text from the tick labels, so it keeps a field of its own.
         self.y_label_size_var = tk.StringVar()
         number_row(box, 'Y title text size', self.y_label_size_var, self._update_fonts)
+
+        self.y_axis_length_var = tk.StringVar()
+        number_row(box, 'Y axis length (cm)', self.y_axis_length_var, self._update_axis_lengths)
 
         self.y_tick_font_var = tk.StringVar()
         number_row(box, 'Y tick text size', self.y_tick_font_var, self._update_fonts)
@@ -229,6 +244,31 @@ class AxisTabMixin(_AppBase):
         self.state.config.x_max = optional_number(self.x_max_var.get())
         self.state.config.x_major_step = optional_number(self.x_step_var.get())
         self.redraw()
+
+    def _update_axis_lengths(self, _event: object = None) -> None:
+        """Apply positive finite physical lengths to the two plotting axes.
+
+        An invalid or unfinished value leaves that axis at its last accepted length and is
+        put back in its field, so a blank or half-typed number cannot collapse the plot.
+
+        Args:
+            _event: Unused; either length field applies its own value.
+
+        """
+        if self.syncing:
+            return
+        self.state.config.x_axis_length_cm = _positive_length(
+            self.x_axis_length_var.get(),
+            self.state.config.x_axis_length_cm,
+        )
+        self.state.config.y_axis_length_cm = _positive_length(
+            self.y_axis_length_var.get(),
+            self.state.config.y_axis_length_cm,
+        )
+        self.x_axis_length_var.set(f'{self.state.config.x_axis_length_cm:g}')
+        self.y_axis_length_var.set(f'{self.state.config.y_axis_length_cm:g}')
+        self.redraw()
+
     def _automatic_step(self) -> float | None:
         """Return the value axis tick spacing matplotlib would choose on its own.
 
@@ -333,7 +373,6 @@ class AxisTabMixin(_AppBase):
         """Apply the chosen value axis scale."""
         self.state.config.log_axis = self.log_var.get() == 'Log'
         self.redraw()
-
 
 
 
