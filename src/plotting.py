@@ -1430,12 +1430,10 @@ def _label_margins(fig: Figure, ax: Axes, labels: Sequence[str]) -> dict[str, fl
 def _connected_series(names: Sequence[str], settings: PlotConfig) -> frozenset[str]:
     """Return the names of the series whose points are joined by a line.
 
-    The all or nothing setting is kept, because joining every series is what it always
-    meant and it is the quickest way to trace all of them at once. A series named in
-    ``connect_series`` is joined whatever that setting says, so one series can be traced
-    through its points while the rest stay as separate marks. A name that is no longer
-    plotted is ignored rather than failing, which is what lets a removed column leave its
-    setting behind harmlessly.
+    The all-series setting takes precedence, so the default joins every series. When it is
+    off, ``connect_series`` selects the series to trace while the rest stay as separate
+    marks. A name that is no longer plotted is ignored rather than failing, which is what
+    lets a removed column leave its setting behind harmlessly.
 
     Args:
         names: Every series name in drawing order.

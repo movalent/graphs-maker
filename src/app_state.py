@@ -12,6 +12,7 @@ from typing import Literal
 
 from src.graphpad_style import DEFAULT_LINE_WIDTH, DEFAULT_PALETTE, default_color
 from src.models import (
+    DEFAULT_CONNECT_POINTS,
     DEFAULT_DECIMALS,
     DEFAULT_LEGEND_POSITION,
     DEFAULT_POINT_TYPE,
@@ -633,6 +634,7 @@ class AppState:
         self.config.show_points = True
         self.config.show_legend = True
         self.config.legend_position = DEFAULT_LEGEND_POSITION
+        self.config.connect_points = DEFAULT_CONNECT_POINTS
         self.config.legend_font = None
         self.config.y_label = None
         self.config.y_max = None

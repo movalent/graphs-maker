@@ -1335,11 +1335,11 @@ def test_a_scatter_plot_of_nothing_is_empty(scatter_dataset: Dataset) -> None:
 
 
 def test_points_can_be_joined_by_a_line(scatter_dataset: Dataset) -> None:
-    """A scatter plot is often a trend rather than a cloud, so a connecting line is offered."""
-    plain = axes_of(plot_dataset(scatter_dataset, PlotConfig(chart='scatter')))
-    joined = axes_of(plot_dataset(scatter_dataset, PlotConfig(chart='scatter', connect_points=True)))
-    assert plain.lines[0].get_linestyle() == 'None'
+    """Scatter points are joined by default, with an explicit option to draw them separately."""
+    joined = axes_of(plot_dataset(scatter_dataset, PlotConfig(chart='scatter')))
+    plain = axes_of(plot_dataset(scatter_dataset, PlotConfig(chart='scatter', connect_points=False)))
     assert joined.lines[0].get_linestyle() == '-'
+    assert plain.lines[0].get_linestyle() == 'None'
 
 
 @pytest.mark.parametrize('orientation', ORIENTATIONS)
@@ -1423,7 +1423,9 @@ def _scatter_figure(dataset: Dataset, config: PlotConfig) -> Figure:
 
 def test_one_series_can_be_connected_without_the_others(scatter_dataset: Dataset) -> None:
     """Connecting all of them at once is still a single click, so both must be possible."""
-    ax = axes_of(_scatter_figure(scatter_dataset, PlotConfig(chart='scatter', connect_series=('S2',))))
+    ax = axes_of(
+        _scatter_figure(scatter_dataset, PlotConfig(chart='scatter', connect_points=False, connect_series=('S2',)))
+    )
     styles = [line.get_linestyle() for line in ax.lines]
     assert styles.count('-') == 1
 
@@ -1434,9 +1436,10 @@ def test_the_all_series_setting_still_connects_everything(scatter_dataset: Datas
     assert all(line.get_linestyle() == '-' for line in ax.lines)
 
 
-def test_no_series_is_connected_by_default(scatter_dataset: Dataset) -> None:
+def test_scatter_series_are_connected_by_default(scatter_dataset: Dataset) -> None:
     ax = axes_of(_scatter_figure(scatter_dataset, PlotConfig(chart='scatter')))
-    assert all(line.get_linestyle() == 'None' for line in ax.lines)
+    assert len(ax.lines) == len(scatter_dataset.series)
+    assert all(line.get_linestyle() == '-' for line in ax.lines)
 
 
 def test_a_name_is_chosen_for_the_rightmost_point(scatter_dataset: Dataset) -> None:

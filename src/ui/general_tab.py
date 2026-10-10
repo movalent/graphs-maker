@@ -334,6 +334,6 @@ class GeneralTabMixin(_AppBase):
         if self.syncing:
             return
         self.state.config.connect_points = self.connect_var.get()
+        self._show_selected_style()
         self.redraw()
-
 

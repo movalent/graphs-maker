@@ -23,6 +23,7 @@ from src.graphpad_style import (
     palette_colors,
 )
 from src.models import (
+    DEFAULT_CONNECT_POINTS,
     DEFAULT_POINT_TYPE,
     ORIENTATION_LABELS,
     ORIENTATIONS,
@@ -104,7 +105,7 @@ class StyleTabMixin(_AppBase):
         """
         # How the marks themselves are drawn belongs with the style of the drawing rather
         # than with what the graph as a whole says, so these live here.
-        self.connect_var = tk.BooleanVar(value=False)
+        self.connect_var = tk.BooleanVar(value=DEFAULT_CONNECT_POINTS)
         ttk.Checkbutton(
             panel,
             text='Join the points with a line',
@@ -472,7 +473,11 @@ class StyleTabMixin(_AppBase):
         config = self.state.config
         connect = set(config.connect_series)
         labelled = set(config.label_series)
-        if self.connect_series_var.get():
+        if config.connect_points and not self.connect_series_var.get():
+            config.connect_points = False
+            self.connect_var.set(False)
+            connect = set(self.state.series_names) - names
+        elif self.connect_series_var.get():
             connect |= names
         else:
             connect -= names

@@ -279,7 +279,9 @@ class SampleListMixin(_AppBase):
             # The boxes reflect the first highlighted series, because one value has to
             # stand for all of them and a change applies to every one of them anyway.
             first = names[0]
-            self.connect_series_var.set(first in set(self.state.config.connect_series))
+            self.connect_series_var.set(
+                self.state.config.connect_points or first in set(self.state.config.connect_series)
+            )
             self.label_series_var.set(first in set(self.state.config.label_series))
             # The shape is read the same way, through the accessor that applies the same
             # fallback the renderer does, so the field cannot show a shape the graph ignores.

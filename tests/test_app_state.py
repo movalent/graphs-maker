@@ -360,6 +360,7 @@ def test_reset_clears_every_new_setting(state: AppState) -> None:
     state.config.legend_font = 'Courier New'
     state.config.legend_position = 'right'
     state.config.title_position = 'center'
+    state.config.connect_points = False
 
     state.reset()
 
@@ -374,6 +375,7 @@ def test_reset_clears_every_new_setting(state: AppState) -> None:
     assert state.config.y_label_size is None
     assert state.config.title_size is None
     assert state.config.legend_size is None
+    assert state.config.connect_points is True
     assert state.config.y_label is None
     assert state.group_of('Other') == 'B'
 

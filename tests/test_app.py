@@ -3154,6 +3154,8 @@ def test_the_per_series_controls_appear_only_for_a_scatter_plot(blank_app: Graph
 def test_one_series_can_be_connected_from_the_style_panel(blank_app: GraphPadApp) -> None:
     """The all or nothing switch stays, and a single series is a second way to do it."""
     _scatter(blank_app)
+    blank_app.state.config.connect_points = False
+    blank_app.connect_var.set(False)
     first = blank_app.state.series_names[0]
     blank_app._select_row(0)
     blank_app.connect_series_var.set(True)
@@ -3258,6 +3260,8 @@ def test_the_style_boxes_follow_the_master_switch(blank_app: GraphPadApp) -> Non
 def test_the_style_boxes_reflect_the_selected_series(blank_app: GraphPadApp) -> None:
     """The boxes show what is in force, so ticking one that is already on is not a no-op."""
     _scatter(blank_app)
+    blank_app.state.config.connect_points = False
+    blank_app.connect_var.set(False)
     blank_app._select_row(0)
     blank_app.connect_series_var.set(True)
     blank_app._apply_series_style()
@@ -3300,20 +3304,22 @@ def _series_box(app: GraphPadApp, index: int = 0) -> tk.Misc:
     return [child for child in app.series_style_frame.winfo_children() if child.winfo_class() == 'TCheckbutton'][index]
 
 
-def test_clicking_the_connect_box_connects_that_series(blank_app: GraphPadApp) -> None:
-    """A real click, because calling the handler by hand proved nothing about the box.
+def test_clicking_the_connect_box_opts_one_series_out_of_the_default(blank_app: GraphPadApp) -> None:
+    """The default joins every series, and an individual checkbox can opt one out.
 
-    Every earlier test for this control set the variable and called the method, which
-    passes whether or not the checkbutton was ever wired to anything.
+    A real click ensures the checkbutton wiring supports the default as well as the
+    handler-level behavior.
     """
     _scatter(blank_app)
     _show_bar_style_tab(blank_app)
     blank_app._select_row(0)
     name = blank_app.state.series_names[0]
+    other_names = set(blank_app.state.series_names) - {name}
     _real_widget_click(_series_box(blank_app))
     blank_app.root.update()
-    assert blank_app.state.config.connect_series == (name,)
-    assert [line.get_linestyle() for line in blank_app.canvas.figure.axes[0].lines].count('-') == 1
+    assert blank_app.state.config.connect_points is False
+    assert set(blank_app.state.config.connect_series) == other_names
+    assert [line.get_linestyle() for line in blank_app.canvas.figure.axes[0].lines].count('-') == len(other_names)
 
 
 def test_clicking_the_label_box_names_that_series(blank_app: GraphPadApp) -> None:
@@ -3363,6 +3369,8 @@ def test_a_click_with_nothing_selected_changes_nothing(blank_app: GraphPadApp) -
 def test_the_boxes_come_back_unticked_when_the_selection_empties(blank_app: GraphPadApp) -> None:
     """A tick left behind for a series that is no longer highlighted is a lie about the graph."""
     _scatter(blank_app)
+    blank_app.state.config.connect_points = False
+    blank_app.connect_var.set(False)
     _show_bar_style_tab(blank_app)
     blank_app._select_row(0)
     _real_widget_click(_series_box(blank_app))

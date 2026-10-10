@@ -82,6 +82,7 @@ POINT_LABELS: dict[PointType, str] = {
     'star': 'Star',
 }
 DEFAULT_POINT_TYPE: PointType = 'round'
+DEFAULT_CONNECT_POINTS: bool = True
 # The marker each shape is drawn with. Prism draws an open symbol, a white centre inside a
 # coloured edge, so the shape is a choice about the outline rather than about the fill.
 POINT_MARKERS: dict[PointType, str] = {
@@ -378,9 +379,9 @@ class PlotConfig:
             A bar graph has no x values to scale, so these describe a scatter plot only.
         x_axis_length_cm: Physical width of the plotting area, in centimeters.
         y_axis_length_cm: Physical height of the plotting area, in centimeters.
-        connect_series: Scatter series whose points are joined by a line, by name. An
-            empty tuple joins none of them, which is how a single series can be connected
-            while its neighbours stay as points.
+        connect_series: Scatter series whose points are joined by a line when
+            ``connect_points`` is off. When the all-series setting is on, every series is
+            joined regardless of this tuple.
         point_labels: Whether series names are written beside their rightmost point. This
             is independent of ``show_legend``: either, both or neither may be shown.
         label_series: Scatter series named beside their rightmost point. An empty tuple
@@ -436,7 +437,7 @@ class PlotConfig:
     label_rotation: float = 0.0
     point_size: int | None = None
     point_type: PointType = DEFAULT_POINT_TYPE
-    connect_points: bool = False
+    connect_points: bool = DEFAULT_CONNECT_POINTS
     preview_decimals: int | None = DEFAULT_DECIMALS
     x_max: float | None = None
     x_major_step: float | None = None
