@@ -34,7 +34,9 @@ from src.models import (
     POINT_MARKERS,
     POINT_TYPES,
     SOLID_POINTS,
+    ChartKind,
     Dataset,
+    LegendPosition,
     Orientation,
     PlotConfig,
     PointType,
@@ -992,6 +994,38 @@ def test_a_scatter_legend_can_go_beside_the_graph(scatter_dataset: Dataset) -> N
     beside = plot_dataset(scatter_dataset, PlotConfig(chart='scatter', legend_position='right'))
     assert axes_size_cm(beside) == pytest.approx(axes_size_cm(above))
     assert beside.get_size_inches() == pytest.approx(above.get_size_inches())
+
+
+@pytest.mark.parametrize(
+    ('chart', 'orientation'),
+    [('bar', 'vertical'), ('bar', 'horizontal'), ('scatter', 'vertical')],
+)
+@pytest.mark.parametrize('position', ['right', 'inside'])
+def test_every_chart_kind_can_place_its_legend_right_or_inside(
+    simple_dataset: Dataset,
+    scatter_dataset: Dataset,
+    chart: ChartKind,
+    orientation: Orientation,
+    position: LegendPosition,
+) -> None:
+    """Every renderer supports both requested placements, including horizontal bars."""
+    dataset = scatter_dataset if chart == 'scatter' else simple_dataset
+    figure = plot_dataset(
+        dataset,
+        PlotConfig(chart=chart, orientation=orientation, legend_position=position),
+    )
+    figure.canvas.draw()
+    axes = axes_of(figure).get_window_extent()
+    legend = axes_of(figure).get_legend()
+    assert legend is not None
+    bounds = legend.get_window_extent()
+    if position == 'right':
+        assert bounds.x0 >= axes.x1
+    else:
+        assert bounds.x0 >= axes.x0
+        assert bounds.x1 <= axes.x1
+        assert bounds.y0 >= axes.y0
+        assert bounds.y1 <= axes.y1
 
 
 def test_a_blank_font_size_keeps_the_default(simple_dataset: Dataset) -> None:
