@@ -121,7 +121,7 @@ class Sample:
 
     Attributes:
         name: Unique, human readable name of the condition.
-        group: Name of the group the condition belongs to.
+        group: Name of the group the condition belongs to, or an empty string if ungrouped.
         values: Replicate measurements, in worksheet row order.
 
     """
@@ -237,19 +237,21 @@ class Dataset:
 
     @property
     def groups(self) -> tuple[str, ...]:
-        """Return the distinct group names in worksheet order."""
-        return tuple(dict.fromkeys(sample.group for sample in self.samples))
+        """Return the distinct, named groups in worksheet order."""
+        return tuple(dict.fromkeys(sample.group for sample in self.samples if sample.group))
 
     def group_of(self, group: str) -> tuple[Sample, ...]:
         """Return every sample belonging to one group.
 
         Args:
-            group: Group name to look up.
+            group: Group name to look up; an empty name is not a group.
 
         Returns:
             The matching samples in worksheet order, possibly empty.
 
         """
+        if not group:
+            return ()
         return tuple(sample for sample in self.samples if sample.group == group)
 
     def ordered(self, order: Sequence[str] | None = None) -> tuple[Sample, ...]:

@@ -570,6 +570,28 @@ def test_the_legend_names_every_group_once(nested_dataset: Dataset) -> None:
     assert labels == ['Women', 'Men']
 
 
+def test_ungrouped_samples_are_not_drawn_as_a_group_or_lost_from_legend() -> None:
+    dataset = Dataset(
+        samples=(
+            Sample('A1', 'Group A', (1.0, 2.0)),
+            Sample('A2', 'Group A', (2.0, 3.0)),
+            Sample('Solo 1', '', (3.0, 4.0)),
+            Sample('Solo 2', '', (4.0, 5.0)),
+        )
+    )
+    figure = plot_dataset(dataset, PlotConfig(grouped_layout=True, color_by='group'))
+    labels = [text.get_text() for text in figure.axes[0].get_legend().get_texts()]
+    bar_colors = [to_hex(patch.get_facecolor()) for patch in bars_of(figure)]
+    layout = compute_layout(dataset.samples, dataset.groups, grouped=True)
+
+    assert labels == ['Group A', 'Solo 1', 'Solo 2']
+    assert bar_colors[0] == bar_colors[1]
+    assert bar_colors[2] != bar_colors[3]
+    assert len(layout.groups) == 1
+    assert layout.groups[0].name == 'Group A'
+    assert _gaps(layout.centers) == pytest.approx([BAR_WIDTH + BAR_GAP] * 3)
+
+
 def test_the_legend_names_every_sample_when_not_grouped(nested_dataset: Dataset) -> None:
     figure = plot_dataset(nested_dataset)
     labels = [text.get_text() for text in figure.axes[0].get_legend().get_texts()]

@@ -72,6 +72,21 @@ def test_multi_groups_skips_groups_of_one(state: AppState) -> None:
     assert state.multi_groups() == ('A',)
 
 
+def test_ungrouped_samples_are_not_listed_as_groups() -> None:
+    dataset = Dataset(
+        samples=(
+            Sample('A1', 'Group A', (1.0, 2.0)),
+            Sample('A2', 'Group A', (2.0, 3.0)),
+            Sample('Solo 1', '', (3.0, 4.0)),
+            Sample('Solo 2', '', (4.0, 5.0)),
+        )
+    )
+    state = AppState(dataset)
+
+    assert state.groups() == ('Group A',)
+    assert state.multi_groups() == ('Group A',)
+
+
 def test_multi_groups_grows_when_a_sample_joins(state: AppState) -> None:
     state.set_group('Other', 'C')
     assert state.multi_groups() == ('A', 'C')

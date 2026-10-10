@@ -99,6 +99,25 @@ def test_replicates_without_condition_row(tmp_path: Path) -> None:
     assert dataset.samples[0].values == (1.0, 3.0)
 
 
+def test_blank_group_names_leave_samples_ungrouped(tmp_path: Path) -> None:
+    book = write_book(
+        tmp_path,
+        [
+            ['Group', None, None],
+            ['Condition', 'A', 'B'],
+            ['Value', 1.0, 2.0],
+            ['Value', 3.0, 4.0],
+        ],
+    )
+    dataset = read_dataset(book)
+
+    assert [sample.name for sample in dataset.samples] == ['A', 'B']
+    assert [sample.group for sample in dataset.samples] == ['', '']
+    assert dataset.groups == ()
+    assert dataset.group_of('') == ()
+    assert [sample.values for sample in dataset.samples] == [(1.0, 3.0), (2.0, 4.0)]
+
+
 def test_non_numeric_replicate_is_skipped_with_warning(tmp_path: Path) -> None:
     book = write_book(tmp_path, [['Group', 'A'], ['Value', 1.0], ['Value', 'bad']])
     with pytest.warns(ExcelLayoutWarning):

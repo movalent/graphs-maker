@@ -150,6 +150,8 @@ class _AppBase:
     error_var: tk.StringVar
     bar_width_var: tk.StringVar
     bar_hatch_var: tk.StringVar
+    default_point_type_var: tk.StringVar
+    default_point_type_combo: ttk.Combobox
     point_type_var: tk.StringVar
     point_type_combo: ttk.Combobox
     color_by_var: tk.StringVar
@@ -157,6 +159,8 @@ class _AppBase:
     # The style of the sample highlighted in the list, and its per series choices.
     style_frame: ttk.Labelframe
     style_name: ttk.Label
+    bar_point_type_frame: ttk.Frame
+    bar_point_type_combo: ttk.Combobox
     edge_var: tk.StringVar
     hatch_var: tk.StringVar
     series_style_frame: ttk.Frame

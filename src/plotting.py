@@ -188,8 +188,8 @@ def _bar_centers(samples: tuple[Sample, ...], grouped: bool) -> tuple[float, ...
     """Return the centre of every bar, leaving extra room between groups when asked.
 
     Without grouping this is a flat arithmetic sequence. With it, each bar is laid down after
-    the previous one and an extra :data:`INTER_GROUP_GAP` is added wherever the group
-    changes, so the boundary between two groups is visible without needing a separator line.
+    the previous one and an extra :data:`INTER_GROUP_GAP` is added between adjacent named
+    groups, so their boundary is visible without needing a separator line.
 
     The samples must be in plotting order and already carry their effective group, so a group
     that reappears later is treated as a new run. Grouping is only ever a visual separation:
@@ -206,7 +206,8 @@ def _bar_centers(samples: tuple[Sample, ...], grouped: bool) -> tuple[float, ...
     centers: list[float] = []
     position = 0.0
     for index, sample in enumerate(samples):
-        if index and grouped and sample.group != samples[index - 1].group:
+        previous_group = samples[index - 1].group if index else ''
+        if grouped and sample.group and previous_group and sample.group != previous_group:
             position += INTER_GROUP_GAP
         position += BAR_WIDTH / 2
         centers.append(position)
@@ -243,7 +244,7 @@ def compute_layout(samples: tuple[Sample, ...], groups: tuple[str, ...], grouped
             is_single=len(indexes) == 1,
         )
         for group in groups
-        if (indexes := [position for position, sample in enumerate(samples) if sample.group == group])
+        if group and (indexes := [position for position, sample in enumerate(samples) if sample.group == group])
     )
 
     return BarLayout(
@@ -298,7 +299,14 @@ def _colors(samples: tuple[Sample, ...], groups: tuple[str, ...], config: PlotCo
     names = [sample.name for sample in samples]
     if config.color_by == 'group':
         index_of = {name: position for position, name in enumerate(groups)}
-        return _entry_colors(names, [index_of[sample.group] for sample in samples], len(groups), config)
+        ungrouped: dict[int, int] = {}
+        for index, sample in enumerate(samples):
+            if not sample.group:
+                ungrouped[index] = len(groups) + len(ungrouped)
+        positions: list[int] = []
+        for index, sample in enumerate(samples):
+            positions.append(index_of[sample.group] if sample.group else ungrouped[index])
+        return _entry_colors(names, positions, len(groups) + len(ungrouped), config)
     return _entry_colors(names, range(len(samples)), len(samples), config)
 
 
@@ -436,8 +444,8 @@ def legend_above(config: PlotConfig) -> bool:
 def legend_entries(samples: tuple[Sample, ...], config: PlotConfig) -> int:
     """Return how many names a bar graph's legend lists.
 
-    A grouped graph names each group once rather than repeating it for every bar in it, so
-    the legend is shorter than the list of bars and the band it needs is shorter too.
+    A grouped graph names each named group once rather than repeating it for every bar in it.
+    Ungrouped samples keep their own legend entries.
 
     Args:
         samples: Samples in plotting order.
@@ -449,7 +457,7 @@ def legend_entries(samples: tuple[Sample, ...], config: PlotConfig) -> int:
     """
     if not config.grouped_layout:
         return len(samples)
-    return len({sample.group for sample in samples})
+    return len({sample.group for sample in samples if sample.group}) + sum(not sample.group for sample in samples)
 
 
 def legend_rows(entries: int, config: PlotConfig) -> int:
@@ -758,8 +766,7 @@ def _legend_handles(
 
     In the Prism grouped layout a condition such as an age band repeats inside every group,
     so listing one entry per bar would print the same label several times. The legend then
-    names each group once instead, and the swatch takes the colour of the group's first bar,
-    which is the colour the whole group carries when colours follow groups.
+    names each named group once and gives each ungrouped sample its own entry.
 
     A scatter series is named the way a sample is, so one function serves both graphs.
 
@@ -781,7 +788,10 @@ def _legend_handles(
 
     handles: list[Patch] = []
     seen: set[str] = set()
-    for group, color in zip(group_names, colors, strict=True):
+    for index, (group, color) in enumerate(zip(group_names, colors, strict=True)):
+        if not group:
+            handles.append(Patch(facecolor=color, edgecolor=BAR_EDGE, label=names[index]))
+            continue
         if group in seen:
             continue
         seen.add(group)
@@ -1085,9 +1095,9 @@ def plot_bars(dataset: Dataset, config: PlotConfig | None = None) -> Figure:
     fig = new_figure()
     ax: Axes = fig.add_subplot()
     grouped = _grouped_samples(samples, settings)
-    groups = tuple(dict.fromkeys(sample.group for sample in grouped))
+    groups = tuple(dict.fromkeys(sample.group for sample in grouped if sample.group))
     layout = compute_layout(grouped, groups, settings.grouped_layout)
-    colors = _colors(samples, groups, settings)
+    colors = _colors(grouped, groups, settings)
     horizontal = settings.orientation in ('horizontal', 'inverted')
 
     means = [sample.mean for sample in samples]
@@ -1194,7 +1204,7 @@ def plot_bars(dataset: Dataset, config: PlotConfig | None = None) -> Figure:
         _add_legend(
             ax,
             [sample.name for sample in samples],
-            [sample.group for sample in samples],
+            [sample.group for sample in grouped],
             colors,
             settings.legend_size,
             settings.grouped_layout,
@@ -1203,7 +1213,7 @@ def plot_bars(dataset: Dataset, config: PlotConfig | None = None) -> Figure:
         )
     # The group bands are drawn outside the axes, so tight_layout cannot account for them
     # and the room for them is reserved explicitly, on whichever side they are drawn.
-    rows = legend_rows(legend_entries(samples, settings), settings)
+    rows = legend_rows(legend_entries(grouped, settings), settings)
     if horizontal:
         fig.subplots_adjust(
             left=_left_margin(settings),

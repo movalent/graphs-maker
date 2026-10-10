@@ -80,9 +80,9 @@ class StyleTabMixin(_AppBase):
         self.orientation_var.set(ORIENTATION_LABELS[config.orientation])
         self.grouped_var.set(config.grouped_layout)
         self.points_var.set(config.show_points)
-        # The shape is put back here rather than through the style panel, because that panel
-        # packs itself into view and this has to leave it hidden until a sample is chosen.
-        # A highlighted series is filled in by the panel when the highlight moves.
+        self.default_point_type_var.set(POINT_LABELS[config.point_type])
+        # A highlighted sample or series is filled in by the style panel when the highlight
+        # moves; this selector separately holds the shape applied to all entries.
         names = self._selected_samples()
         first = names[0] if names else ''
         self.point_type_var.set(POINT_LABELS[self.state.point_type_of(first) if first else config.point_type])
@@ -112,6 +112,15 @@ class StyleTabMixin(_AppBase):
             variable=self.connect_var,
             command=self._update_connect,
         ).pack(anchor=tk.W)
+
+        self.default_point_type_var = tk.StringVar(value=POINT_LABELS[DEFAULT_POINT_TYPE])
+        self.default_point_type_combo = dropdown_row(
+            panel,
+            'Point type (all entries)',
+            self.default_point_type_var,
+            POINT_TYPE_CHOICES,
+            self._update_default_point_type,
+        )
 
         self.points_var = tk.BooleanVar(value=True)
         ttk.Checkbutton(
@@ -195,7 +204,7 @@ class StyleTabMixin(_AppBase):
             wraplength=PANEL_WIDTH - 40,
         ).pack(anchor=tk.W)
 
-        self.style_frame = ttk.Labelframe(panel, text='Bar style')
+        self.style_frame = ttk.Labelframe(panel, text='Selected entry style')
         # Created but deliberately not packed, so the panel only takes up room once a
         # sample has actually been selected and the controls mean something.
         self.style_name = ttk.Label(self.style_frame, text='', font=('Segoe UI', 9, 'bold'))
@@ -218,6 +227,16 @@ class StyleTabMixin(_AppBase):
         combo = ttk.Combobox(row, textvariable=self.hatch_var, values=HATCH_LABELS, state='readonly', width=10)
         combo.pack(side=tk.LEFT, fill=tk.X, expand=True)
         combo.bind('<<ComboboxSelected>>', lambda _e: self._apply_hatch())
+
+        self.bar_point_type_frame = ttk.Frame(self.style_frame)
+        self.point_type_var = tk.StringVar(value=POINT_LABELS[DEFAULT_POINT_TYPE])
+        self.bar_point_type_combo = dropdown_row(
+            self.bar_point_type_frame,
+            'Point type',
+            self.point_type_var,
+            POINT_TYPE_CHOICES,
+            self._update_point_type,
+        )
 
         # A scatter series is drawn as points, so connecting them and naming them are
         # per series decisions that a bar never has to make. They are packed only for a
@@ -242,25 +261,16 @@ class StyleTabMixin(_AppBase):
             variable=self.label_series_var,
             command=self._apply_series_style,
         ).pack(anchor=tk.W)
-        ttk.Label(
-            self.series_style_frame,
-            text='Naming one series switches the labels on. The Scatter tab names them all.',
-            font=('Segoe UI', 8),
-            wraplength=PANEL_WIDTH - 40,
-        ).pack(anchor=tk.W, pady=(2, 0))
-
-        # The shape of a point belongs here rather than in the drawing above, because a graph
-        # often wants its series told apart by shape as well as by colour, and one shape for
-        # the whole plot cannot do that.
-        self.point_type_var = tk.StringVar(value=POINT_LABELS[DEFAULT_POINT_TYPE])
-        # The dropdown is kept rather than packed into a local, so the window can offer the
-        # shapes the settings know about without this module repeating that list.
         self.point_type_combo = dropdown_row(
-            self.series_style_frame, 'Point type', self.point_type_var, POINT_TYPE_CHOICES, self._update_point_type
+            self.series_style_frame,
+            'Point type for this series',
+            self.point_type_var,
+            POINT_TYPE_CHOICES,
+            self._update_point_type,
         )
         ttk.Label(
             self.series_style_frame,
-            text='Leave on Round for every point unless a series is picked out.',
+            text='Naming one series switches the labels on. The Scatter tab names them all.',
             font=('Segoe UI', 8),
             wraplength=PANEL_WIDTH - 40,
         ).pack(anchor=tk.W, pady=(2, 0))
@@ -747,15 +757,7 @@ class StyleTabMixin(_AppBase):
         self._show_selected_color()
         self.redraw()
     def _update_point_type(self, _event: object = None) -> None:
-        """Give the highlighted series its own point shape, or every point one shape.
-
-        A shape chosen with a series highlighted belongs to that series alone, which is how
-        series are told apart when one shape for the whole plot cannot do it. With nothing
-        highlighted there is no series to give it to, so it becomes the shape every point
-        follows, and the series that had one of their own go back to following it.
-
-        A caption the window does not know falls back to the default rather than being stored,
-        so a stale field cannot leave the renderer with a shape it has no marker for.
+        """Give the highlighted sample or scatter series its own point shape.
 
         Args:
             _event: Unused; the dropdown applies the choice itself.
@@ -766,11 +768,6 @@ class StyleTabMixin(_AppBase):
         chosen = label_to(POINT_TYPES, POINT_LABELS, self.point_type_var.get(), DEFAULT_POINT_TYPE)
         names = self._selected_samples()
         if not names:
-            self.state.config.point_type = chosen
-            # The graph is about to be drawn with one shape, so a series that was picked out of
-            # it has to stop claiming one of its own.
-            self.state.config.point_types.clear()
-            self.redraw()
             return
         for name in names:
             if chosen == DEFAULT_POINT_TYPE:
@@ -779,6 +776,16 @@ class StyleTabMixin(_AppBase):
                 self.state.clear_point_type(name)
             else:
                 self.state.set_point_type(name, chosen)
+        self.redraw()
+
+    def _update_default_point_type(self, _event: object = None) -> None:
+        """Apply one point shape to every plotted entry, clearing individual overrides."""
+        if self.syncing:
+            return
+        chosen = label_to(POINT_TYPES, POINT_LABELS, self.default_point_type_var.get(), DEFAULT_POINT_TYPE)
+        self.state.config.point_type = chosen
+        self.state.config.point_types.clear()
+        self._show_selected_style()
         self.redraw()
     def _update_grouped(self) -> None:
         """Apply the Prism grouped layout, which spaces the groups apart.

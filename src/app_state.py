@@ -511,7 +511,7 @@ class AppState:
         The order follows the position of each group's first bar, so a group always sits
         where its leftmost sample sits and the band lines stay in step with the bars.
         """
-        return tuple(dict.fromkeys(self.group_of(sample.name) for sample in self.samples))
+        return tuple(dict.fromkeys(group for sample in self.samples if (group := self.group_of(sample.name))))
 
     def multi_groups(self) -> tuple[str, ...]:
         """Return only the groups holding more than one sample, in drawing order.
@@ -523,6 +523,8 @@ class AppState:
         counts: dict[str, int] = {}
         for sample in self.samples:
             group = self.group_of(sample.name)
+            if not group:
+                continue
             counts[group] = counts.get(group, 0) + 1
         return tuple(group for group in self.groups() if counts.get(group, 0) > 1)
 

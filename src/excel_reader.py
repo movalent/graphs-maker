@@ -520,7 +520,7 @@ def _build_samples(
 
     Args:
         table: The trimmed worksheet table.
-        group_names: Forward filled group name for every measured column.
+        group_names: Forward-filled group name per measured column, blank when ungrouped.
         preferred_names: Name to show for every measured column, may be empty.
         first_data_row: Index of the first replicate row.
         path: Source file, used for warning messages.
@@ -552,15 +552,16 @@ def _build_samples(
                 stacklevel=2,
             )
         if len(values) < 2:
+            display_name = preferred or group or f'Sample {column}'
             warnings.warn(
-                f'Sample {preferred or group!r} has a single replicate, so its error bars are zero.',
+                f'Sample {display_name!r} has a single replicate, so its error bars are zero.',
                 ExcelLayoutWarning,
                 stacklevel=2,
             )
         samples.append(
             Sample(
-                name=_unique_name(preferred, group, used_names),
-                group=group or 'Group 1',
+                name=_unique_name(preferred, group or f'Sample {column}', used_names),
+                group=group,
                 values=values,
             )
         )

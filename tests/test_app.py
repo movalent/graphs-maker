@@ -1402,11 +1402,9 @@ def test_each_setting_sits_on_the_tab_it_belongs_to(app: GraphPadApp) -> None:
         'Group bars (Prism)',
     } <= style
     assert {'Outline', 'Hatch', 'Clear style'} <= style
-    # The shape of a point belongs to whichever series is highlighted, so it sits with the
-    # Connect and Name boxes rather than in the drawing above them. Those live in a block that
-    # only appears for a scatter plot with a series chosen, so it is checked in its own test
-    # rather than here, where the tab is being read for a bar graph.
-    assert 'Point type' not in style
+    # The graph-wide point shape is always available, while the selected-entry shape is
+    # grouped with the contextual style controls below.
+    assert 'Point type (all entries)' in style
 
     # Grouping had a tab of its own until it was left with nothing else, so it now sits at
     # the bottom of the Plot style tab, after the per sample block it acts alongside.
@@ -2228,8 +2226,8 @@ def test_the_point_type_reaches_the_graph(app: GraphPadApp) -> None:
     """With no sample highlighted a shape applies to the whole graph."""
     app._apply_indices(())
     app.root.update()
-    app.point_type_var.set('Diamond')
-    app._update_point_type()
+    app.default_point_type_var.set('Diamond')
+    app._update_default_point_type()
     assert app.state.config.point_type == 'diamond'
     markers = {line.get_marker() for line in app.canvas.figure.axes[0].get_lines()}
     assert 'D' in markers
@@ -2282,8 +2280,8 @@ def test_setting_the_graph_shape_releases_the_series_that_had_one(blank_app: Gra
     blank_app._update_point_type()
     blank_app._apply_indices(())
     blank_app.root.update()
-    blank_app.point_type_var.set('Triangle')
-    blank_app._update_point_type()
+    blank_app.default_point_type_var.set('Triangle')
+    blank_app._update_default_point_type()
     assert blank_app.state.config.point_type == 'triangle'
     assert blank_app.state.config.point_types == {}
 
@@ -2303,8 +2301,8 @@ def test_an_unknown_point_type_falls_back_to_the_default(app: GraphPadApp) -> No
     """A caption the window does not know is not stored, which nothing could undo."""
     app._apply_indices(())
     app.root.update()
-    app.point_type_var.set('Somewhere else entirely')
-    app._update_point_type()
+    app.default_point_type_var.set('Somewhere else entirely')
+    app._update_default_point_type()
     assert app.state.config.point_type == 'round'
 
 
@@ -2313,18 +2311,18 @@ def test_the_point_type_survives_a_sync(app: GraphPadApp) -> None:
     app._apply_indices(())
     app.state.config.point_type = 'triangle'
     app._sync_from_state()
-    assert app.point_type_var.get() == 'Triangle'
+    assert app.default_point_type_var.get() == 'Triangle'
 
 
 def test_a_reset_puts_the_point_type_back(app: GraphPadApp) -> None:
     """A reset is meant to undo the shape too, not only the colours."""
     app._apply_indices(())
     app.root.update()
-    app.point_type_var.set('Star')
-    app._update_point_type()
+    app.default_point_type_var.set('Star')
+    app._update_default_point_type()
     app._reset()
     assert app.state.config.point_type == 'round'
-    assert app.point_type_var.get() == 'Round'
+    assert app.default_point_type_var.get() == 'Round'
 
 
 def test_a_reset_puts_a_series_shape_back(app: GraphPadApp) -> None:
@@ -2339,24 +2337,58 @@ def test_a_reset_puts_a_series_shape_back(app: GraphPadApp) -> None:
 
 
 def test_every_point_shape_is_offered(app: GraphPadApp) -> None:
-    """The dropdown lists every shape the settings know how to draw."""
-    assert app.point_type_combo.cget('values') == (
+    """Both global and per-entry dropdowns list every shape the renderer knows."""
+    choices = (
         'Round', 'Square', 'Cross', 'Triangle', 'Diamond', 'Star',
     )
+    assert app.default_point_type_combo.cget('values') == choices
+    assert app.point_type_combo.cget('values') == choices
+    assert app.bar_point_type_combo.cget('values') == choices
 
 
-def test_the_point_type_lives_on_the_plot_style_tab(blank_app: GraphPadApp) -> None:
-    """A point's shape is set on the style tab, beside the other per series choices.
-
-    It sits with the Connect and Name boxes rather than in the drawing above, because all
-    three belong to whichever series is highlighted. The block only appears once one is,
-    which is why a row is chosen before the captions are read.
-    """
+def test_point_type_controls_cover_global_and_selected_entries(blank_app: GraphPadApp) -> None:
+    """The graph-wide selector is always available and the selected-entry selector is contextual."""
+    assert 'Point type (all entries)' in _captions_in(_tab_frame(blank_app, 2))
+    assert not blank_app.bar_point_type_frame.winfo_manager()
     assert 'Point type' not in _captions_in(_tab_frame(blank_app, 0))
+    assert blank_app.load_file(INPUT_FILE)
+    blank_app._select_row(0)
+    assert 'Point type' in _captions_in(blank_app.style_frame)
+    assert blank_app.bar_point_type_frame.winfo_manager()
+
+
+def test_bar_sample_point_type_can_be_changed_independently(app: GraphPadApp) -> None:
+    """A selected bar sample gets its own replicate point shape."""
+    name = app.state.entry_order[0]
+    app._select_row(0)
+    app.point_type_var.set('Square')
+    app._update_point_type()
+    assert app.state.point_type_of(name) == 'square'
+    markers = {line.get_marker() for line in app.canvas.figure.axes[0].get_lines()}
+    assert 's' in markers
+
+
+def test_scatter_series_style_block_has_point_type_control(blank_app: GraphPadApp) -> None:
+    """The selected scatter series exposes its own point shape beside its other controls."""
     _scatter(blank_app)
     blank_app._select_row(0)
-    assert 'Point type' in _captions_in(_tab_frame(blank_app, 2))
-    assert 'Point type' in _captions_in(blank_app.series_style_frame)
+    assert 'Point type for this series' in _captions_in(blank_app.series_style_frame)
+    assert blank_app.point_type_combo.winfo_manager()
+    blank_app.point_type_var.set('Triangle')
+    blank_app._update_point_type()
+    selected = blank_app.state.series_names[0]
+    assert blank_app.state.point_type_of(selected) == 'triangle'
+    assert blank_app.state.config.point_type == 'round'
+
+
+def test_the_default_point_type_changes_every_scatter_series(blank_app: GraphPadApp) -> None:
+    """The global selector also applies the chosen shape to every scatter series."""
+    _scatter(blank_app)
+    blank_app.default_point_type_var.set('Triangle')
+    blank_app._update_default_point_type()
+    assert blank_app.state.config.point_types == {}
+    markers = [line.get_marker() for line in blank_app.canvas.figure.axes[0].get_lines()]
+    assert markers == ['^'] * len(blank_app.state.series_names)
 
 
 def test_the_swatch_shows_the_colour_the_bar_is_drawn_in(app: GraphPadApp) -> None:

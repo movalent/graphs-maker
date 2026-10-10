@@ -266,13 +266,15 @@ class SampleListMixin(_AppBase):
             self.series_style_frame.pack(fill=tk.X)
         elif not scatter and self.series_style_frame.winfo_manager():
             self.series_style_frame.pack_forget()
+        if not scatter and names and not self.bar_point_type_frame.winfo_manager():
+            self.bar_point_type_frame.pack(fill=tk.X)
+        elif (scatter or not names) and self.bar_point_type_frame.winfo_manager():
+            self.bar_point_type_frame.pack_forget()
         if not names:
             # The boxes are put back to off as well, so a panel can never be left showing
             # a tick that the graph does not agree with.
             self.connect_series_var.set(False)
             self.label_series_var.set(False)
-            # With nothing highlighted there is no series the shape belongs to, so the field
-            # falls back to the shape the whole graph is drawn with.
             self.point_type_var.set(POINT_LABELS[self.state.config.point_type])
             return
         if scatter:
@@ -283,9 +285,9 @@ class SampleListMixin(_AppBase):
                 self.state.config.connect_points or first in set(self.state.config.connect_series)
             )
             self.label_series_var.set(first in set(self.state.config.label_series))
-            # The shape is read the same way, through the accessor that applies the same
-            # fallback the renderer does, so the field cannot show a shape the graph ignores.
-            self.point_type_var.set(POINT_LABELS[self.state.point_type_of(first)])
+        # The shape is read the same way for a bar sample or scatter series, through the
+        # accessor that applies the same fallback the renderer does.
+        self.point_type_var.set(POINT_LABELS[self.state.point_type_of(names[0])])
         # The fields show the first highlighted sample, because one value has to stand for
         # all of them, and a change applies to every one of them anyway.
         first = names[0]
