@@ -111,7 +111,7 @@ def wheel_units(event: tk.Event[tk.Misc]) -> int:
     return -max(-1, min(1, delta // 120)) or (-1 if delta > 0 else 1)
 
 
-def bind_wheel(widget: tk.Misc, handler: Callable[[tk.Event[tk.Misc]], None]) -> None:
+def bind_wheel(widget: tk.Misc, handler: Callable[[tk.Event[tk.Misc]], object]) -> None:
     """Bind the mouse wheel to one widget and to everything inside it.
 
     The options are a frame full of entries, comboboxes and checkbuttons rather than

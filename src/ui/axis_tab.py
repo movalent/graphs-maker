@@ -12,17 +12,24 @@ from __future__ import annotations
 
 import math
 import tkinter as tk
-from tkinter import ttk
+from functools import partial
+from tkinter import colorchooser, ttk
 
 from matplotlib.ticker import AutoLocator
 
-from src.app_state import LineTarget
+from src.app_state import FALLBACK_COLOR, LineTarget, normalize_hex
 from src.graphpad_style import DEFAULT_LEGEND_FONT, DEFAULT_TICK_FONT
-from src.models import DEFAULT_FONT_TYPE
+from src.models import (
+    DEFAULT_FONT_TYPE,
+    REFERENCE_LINE_STYLE_LABELS,
+    REFERENCE_LINE_STYLES,
+    ReferenceLine,
+    ReferenceLineOrientation,
+)
 from src.ui.base import PANEL_WIDTH, _AppBase
 from src.ui.fields import chosen_size, chosen_value, optional_number, optional_size, shown_number
 from src.ui.general_tab import FONT_CHOICES
-from src.ui.widgets import dropdown_row, number_row, option_row, pair_row, section
+from src.ui.widgets import bind_wheel, dropdown_row, number_row, option_row, pair_row, section
 
 # How an axis may be scaled. A log axis cannot start at or cross zero, so it is offered on
 # both axes the same way rather than being restricted to the value axis.
@@ -69,6 +76,7 @@ class AxisTabMixin(_AppBase):
         # The thickness field shows the value in use, so an untouched field is never read as
         # a request to fix the line at the default the graph already uses.
         self.axis_width_var.set(f'{self.state.line_width_of("axis"):g}')
+        self._sync_reference_lines()
 
     def _build_axis_tab(self, tab: ttk.Frame) -> None:
         """Create the tab holding the name, scale, range and fonts of each axis.
@@ -95,6 +103,18 @@ class AxisTabMixin(_AppBase):
 
         self._build_x_axis(section(tab, 'X axis'))
         self._build_y_axis(section(tab, 'Y axis'))
+        self.reference_lines_frame = section(tab, 'Reference lines')
+        ttk.Button(
+            self.reference_lines_frame,
+            text='Add horizontal line',
+            command=lambda: self._add_reference_line('horizontal'),
+        ).pack(fill=tk.X)
+        ttk.Button(
+            self.reference_lines_frame,
+            text='Add vertical line',
+            command=lambda: self._add_reference_line('vertical'),
+        ).pack(fill=tk.X, pady=(4, 0))
+
     def _build_x_axis(self, box: tk.Widget) -> None:
         """Create the block of settings that describe the x axis.
 
@@ -161,6 +181,7 @@ class AxisTabMixin(_AppBase):
             font=('Segoe UI', 8),
             wraplength=PANEL_WIDTH - 60,
         ).pack(anchor=tk.W, pady=(2, 0))
+
     def _build_y_axis(self, box: tk.Widget) -> None:
         """Create the block of settings that describe the y axis.
 
@@ -200,6 +221,7 @@ class AxisTabMixin(_AppBase):
             ('Y axis type', self.log_var, ('Linear', 'Log'), self._update_log),
             (None, None, (), None),
         )
+
     def _update_y_title(self, _event: object = None) -> None:
         """Apply the value axis title, treating the sheet's own title as no override.
 
@@ -214,6 +236,7 @@ class AxisTabMixin(_AppBase):
         # override. Storing it as one would make a later change to the sheet invisible.
         self.state.config.y_label = None if text == self.state.dataset.y_label else text or None
         self.redraw()
+
     def _update_axis(self, _event: object = None) -> None:
         """Apply the value axis range and tick spacing.
 
@@ -229,6 +252,167 @@ class AxisTabMixin(_AppBase):
         self.state.config.y_max = chosen_value(self.y_max_var.get(), self.state.automatic_y_max())
         self.state.config.y_major_step = chosen_value(self.y_step_var.get(), self._automatic_step())
         self.redraw()
+
+    def _sync_reference_lines(self) -> None:
+        """Rebuild the reference-line controls to show the current line settings."""
+        scroll_position = self._body_canvas.yview()[0]
+        for child in self.reference_lines_frame.winfo_children()[2:]:
+            child.destroy()
+        self.reference_color_buttons = {}
+        for index, line in enumerate(self.state.config.reference_lines):
+            box = ttk.LabelFrame(
+                self.reference_lines_frame,
+                text=f'{line.orientation.capitalize()} line {index + 1}',
+                padding=5,
+            )
+            box.pack(fill=tk.X, pady=(6, 0))
+            position_var = tk.StringVar(value=f'{line.position:g}')
+            style_var = tk.StringVar(value=REFERENCE_LINE_STYLE_LABELS[line.linestyle])
+            _position_entry, _style_combo = pair_row(
+                box,
+                (
+                    'Position',
+                    position_var,
+                    (),
+                    partial(self._update_reference_position, index, position_var),
+                ),
+                (
+                    'Line type',
+                    style_var,
+                    tuple(REFERENCE_LINE_STYLE_LABELS[style] for style in REFERENCE_LINE_STYLES),
+                    partial(self._update_reference_style, index, style_var),
+                ),
+            )
+            row = ttk.Frame(box)
+            row.pack(fill=tk.X, pady=(4, 0))
+            ttk.Label(row, text='Thickness', font=('Segoe UI', 8), width=9).pack(side=tk.LEFT)
+            width_var = tk.StringVar(value=f'{line.linewidth:g}')
+            width_entry = ttk.Entry(row, textvariable=width_var, width=8)
+            width_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
+            width_entry.bind(
+                '<Return>',
+                partial(self._update_reference_width, index, width_var),
+            )
+            width_entry.bind(
+                '<FocusOut>',
+                partial(self._update_reference_width, index, width_var),
+            )
+            ttk.Button(
+                row,
+                text='Remove',
+                command=partial(self._remove_reference_line, index),
+            ).pack(side=tk.LEFT, padx=(5, 0))
+            self._reference_color_button(box, index, line.color)
+        bind_wheel(self.reference_lines_frame, self._on_body_wheel)
+        self.reference_lines_frame.update_idletasks()
+        self._body_inner.update_idletasks()
+        self._body_canvas.configure(scrollregion=self._body_canvas.bbox('all'))
+        self._body_canvas.yview_moveto(scroll_position)
+
+    def _reference_color_button(self, parent: tk.Widget, index: int, color: str) -> tk.Button:
+        """Add a color swatch button for one reference line."""
+        row = ttk.Frame(parent)
+        row.pack(fill=tk.X, pady=(4, 0))
+        ttk.Label(row, text='Color', font=('Segoe UI', 8), width=9).pack(side=tk.LEFT)
+        button = tk.Button(
+            row,
+            text=color,
+            bg=color,
+            fg='white' if sum(int(color[offset : offset + 2], 16) for offset in (1, 3, 5)) < 360 else 'black',
+            command=partial(self._choose_reference_color, index),
+            relief=tk.RAISED,
+        )
+        button.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        self.reference_color_buttons[index] = button
+        return button
+
+    def _add_reference_line(self, orientation: ReferenceLineOrientation) -> None:
+        """Add a reference line in the requested direction and redraw the graph."""
+        if self.state.add_reference_line(orientation):
+            self._sync_reference_lines()
+            self.redraw()
+
+    def _remove_reference_line(self, index: int) -> None:
+        """Remove one reference line and redraw the graph."""
+        if self.state.remove_reference_line(index):
+            self._sync_reference_lines()
+            self.redraw()
+
+    def _update_reference_line(self, index: int, line: ReferenceLine) -> bool:
+        """Apply a validated line edit without rebuilding the controls.
+
+        Returns:
+            ``True`` when the line was accepted.
+
+        """
+        if self.state.update_reference_line(index, line):
+            self.redraw()
+            return True
+        return False
+
+    def _update_reference_position(self, index: int, variable: tk.StringVar, _event: object = None) -> None:
+        """Apply a finite data coordinate to one reference line."""
+        if self.syncing:
+            return
+        position = optional_number(variable.get())
+        if position is None or not math.isfinite(position):
+            variable.set(f'{self.state.config.reference_lines[index].position:g}')
+            return
+        line = self.state.config.reference_lines[index]
+        if not self._update_reference_line(
+            index, ReferenceLine(line.orientation, position, line.linestyle, line.color, line.linewidth)
+        ):
+            variable.set(f'{line.position:g}')
+
+    def _update_reference_style(self, index: int, variable: tk.StringVar, _event: object = None) -> None:
+        """Apply a chosen line style to one reference line."""
+        if self.syncing:
+            return
+        style = next(
+            (key for key, label in REFERENCE_LINE_STYLE_LABELS.items() if label == variable.get()),
+            None,
+        )
+        if style is None:
+            variable.set(REFERENCE_LINE_STYLE_LABELS[self.state.config.reference_lines[index].linestyle])
+            return
+        line = self.state.config.reference_lines[index]
+        if not self._update_reference_line(
+            index, ReferenceLine(line.orientation, line.position, style, line.color, line.linewidth)
+        ):
+            variable.set(REFERENCE_LINE_STYLE_LABELS[line.linestyle])
+
+    def _update_reference_width(self, index: int, variable: tk.StringVar, _event: object = None) -> None:
+        """Apply a usable thickness to one reference line."""
+        if self.syncing:
+            return
+        width = optional_number(variable.get())
+        if width is None or not math.isfinite(width):
+            variable.set(f'{self.state.config.reference_lines[index].linewidth:g}')
+            return
+        line = self.state.config.reference_lines[index]
+        if not self._update_reference_line(
+            index, ReferenceLine(line.orientation, line.position, line.linestyle, line.color, width)
+        ):
+            variable.set(f'{line.linewidth:g}')
+
+    def _choose_reference_color(self, index: int) -> None:
+        """Open the color chooser for one reference line."""
+        line = self.state.config.reference_lines[index]
+        chosen = colorchooser.askcolor(color=line.color, parent=self.root)
+        if chosen[1] is None:
+            return
+        color = normalize_hex(chosen[1]) or FALLBACK_COLOR
+        if self._update_reference_line(
+            index,
+            ReferenceLine(line.orientation, line.position, line.linestyle, color, line.linewidth),
+        ):
+            button = self.reference_color_buttons[index]
+            button.configure(
+                text=color,
+                bg=color,
+                fg='white' if sum(int(color[offset : offset + 2], 16) for offset in (1, 3, 5)) < 360 else 'black',
+            )
+
     def _update_x_axis(self, _event: object = None) -> None:
         """Apply the x axis top and tick spacing of a scatter plot.
 
@@ -285,6 +469,7 @@ class AxisTabMixin(_AppBase):
         low, high = axes[0].get_ylim()
         ticks = AutoLocator().tick_values(low, high)
         return max(ticks) if len(ticks) else None
+
     def _update_line_width(self, _event: object = None) -> None:
         """Apply the axis and bar line thicknesses typed into the two fields.
 
@@ -317,6 +502,7 @@ class AxisTabMixin(_AppBase):
         self.axis_width_var.set(f'{self.state.line_width_of("axis"):g}')
         self.bar_width_var.set(f'{self.state.line_width_of("bar"):g}')
         self.redraw()
+
     def _update_x_title(self, _event: object = None) -> None:
         """Apply the x axis title, treating the sheet's own title as no override.
 
@@ -331,6 +517,7 @@ class AxisTabMixin(_AppBase):
         # override. Storing it as one would make a later change to the sheet invisible.
         self.state.config.x_label_override = None if text == self.state.dataset.x_label else text or None
         self.redraw()
+
     def _update_rotation(self, _event: object = None) -> None:
         """Turn the x axis labels, and keep the field inside the range they may turn through.
 
@@ -351,6 +538,7 @@ class AxisTabMixin(_AppBase):
         self.rotation_var.set(str(bounded))
         self.state.config.label_rotation = float(bounded)
         self.redraw()
+
     def _update_fonts(self, _event: object = None) -> None:
         """Apply the requested tick, legend, axis title and figure title font sizes.
 
@@ -373,6 +561,3 @@ class AxisTabMixin(_AppBase):
         """Apply the chosen value axis scale."""
         self.state.config.log_axis = self.log_var.get() == 'Log'
         self.redraw()
-
-
-

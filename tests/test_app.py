@@ -1175,6 +1175,53 @@ def test_the_thickness_fields_start_at_the_prism_value(app: GraphPadApp) -> None
     assert app.bar_width_var.get() == f'{DEFAULT_LINE_WIDTH:g}'
 
 
+def test_axis_panel_can_add_and_remove_reference_lines(app: GraphPadApp) -> None:
+    buttons = app.reference_lines_frame.winfo_children()[:2]
+    assert [button.cget('text') for button in buttons] == ['Add horizontal line', 'Add vertical line']
+    app._add_reference_line('horizontal')
+    app._add_reference_line('vertical')
+    line_types = _comboboxes_in(app.reference_lines_frame)
+    assert [tuple(combo.cget('values')) for combo in line_types] == [
+        ('Solid', 'Dashed', 'Dotted', 'Dash-dot'),
+        ('Solid', 'Dashed', 'Dotted', 'Dash-dot'),
+    ]
+    assert [line.orientation for line in app.state.config.reference_lines] == ['horizontal', 'vertical']
+    assert [line.linestyle for line in app.state.config.reference_lines] == ['--', '--']
+    assert len(app.reference_lines_frame.winfo_children()) == 4
+    app._update_reference_position(0, tk.StringVar(value='3.5'))
+    app._update_reference_style(0, tk.StringVar(value='Dotted'))
+    app._update_reference_width(0, tk.StringVar(value='2.5'))
+    line = app.state.config.reference_lines[0]
+    assert line.position == 3.5
+    assert line.linestyle == ':'
+    assert line.linewidth == 2.5
+    app._remove_reference_line(0)
+    assert [line.orientation for line in app.state.config.reference_lines] == ['vertical']
+
+
+def test_new_reference_line_controls_keep_the_mouse_wheel_scroll_binding(app: GraphPadApp) -> None:
+    app._switch_tab('Axis')
+    for position in range(8):
+        assert app.state.add_reference_line('horizontal', float(position))
+    app._sync_reference_lines()
+    app.root.update()
+
+    line_type = _comboboxes_in(app.reference_lines_frame)[0]
+    assert line_type.bind('<MouseWheel>')
+    before = app._body_canvas.yview()[0]
+    line_type.event_generate('<MouseWheel>', delta=-120)
+    app.root.update()
+    after = app._body_canvas.yview()[0]
+
+    assert after > before
+    style_var = tk.StringVar(app.root, name=str(line_type.cget('textvariable')))
+    style_var.set('Dotted')
+    app._update_reference_style(0, style_var)
+    app.root.update()
+    assert line_type.winfo_exists()
+    assert app._body_canvas.yview()[0] == pytest.approx(after)
+
+
 def test_a_typed_axis_thickness_reaches_the_graph(app: GraphPadApp) -> None:
     app.axis_width_var.set('3')
     app._update_line_width()
@@ -3021,7 +3068,7 @@ def test_the_label_rotation_belongs_to_the_x_axis(app: GraphPadApp) -> None:
     """
     tab = _tab_frame(app, 1)
     blocks = {str(child.cget('text')): child for child in tab.winfo_children() if child.winfo_class() == 'TLabelframe'}
-    assert set(blocks) == {'X axis', 'Y axis'}
+    assert set(blocks) == {'X axis', 'Y axis', 'Reference lines'}
     assert 'Label rotation' in _captions_in(blocks['X axis'])
     assert 'Label rotation' not in _captions_in(blocks['Y axis'])
 

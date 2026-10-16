@@ -32,6 +32,7 @@ from src.models import (
     Dataset,
     LegendPosition,
     PlotConfig,
+    ReferenceLine,
     Sample,
     XYSeries,
 )
@@ -398,6 +399,33 @@ def _apply_axis_line_width(ax: Axes, config: PlotConfig) -> None:
     for spine in (ax.spines['left'], ax.spines['bottom']):
         spine.set_linewidth(width)
     ax.tick_params(axis='y', which='major', width=width)
+
+
+def _draw_reference_lines(ax: Axes, lines: Sequence[ReferenceLine]) -> None:
+    """Draw guide lines without allowing them to change the limits chosen for the data.
+
+    Args:
+        ax: The axes carrying the graph.
+        lines: Reference lines to draw in data coordinates.
+
+    """
+    if not lines:
+        return
+    x_limits, y_limits = ax.get_xlim(), ax.get_ylim()
+    autoscale_x, autoscale_y = ax.get_autoscalex_on(), ax.get_autoscaley_on()
+    for line in lines:
+        draw = ax.axhline if line.orientation == 'horizontal' else ax.axvline
+        draw(
+            line.position,
+            color=line.color,
+            linewidth=line.linewidth,
+            linestyle=line.linestyle,
+            zorder=3.5,
+        )
+    ax.set_xlim(x_limits)
+    ax.set_ylim(y_limits)
+    ax.set_autoscalex_on(autoscale_x)
+    ax.set_autoscaley_on(autoscale_y)
 
 
 def _apply_font_sizes(ax: Axes, config: PlotConfig) -> None:
@@ -782,8 +810,7 @@ def _legend_handles(
     """
     if not grouped:
         return [
-            Patch(facecolor=color, edgecolor=BAR_EDGE, label=name)
-            for name, color in zip(names, colors, strict=True)
+            Patch(facecolor=color, edgecolor=BAR_EDGE, label=name) for name, color in zip(names, colors, strict=True)
         ]
 
     handles: list[Patch] = []
@@ -1200,6 +1227,7 @@ def plot_bars(dataset: Dataset, config: PlotConfig | None = None) -> Figure:
         ax.set_ylim(layout.left, layout.right)
     else:
         ax.set_xlim(layout.left, layout.right)
+    _draw_reference_lines(ax, settings.reference_lines)
     if settings.show_legend:
         _add_legend(
             ax,
@@ -1321,6 +1349,7 @@ def plot_scatter(dataset: Dataset, config: PlotConfig | None = None) -> Figure:
     # The x label is written after the shared axis finishing, because that helper clears the
     # x label for a bar graph, where the samples are named along that axis instead.
     ax.set_xlabel(settings.x_label_override or dataset.x_label)
+    _draw_reference_lines(ax, settings.reference_lines)
     if settings.show_legend:
         _add_legend(
             ax,

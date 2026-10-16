@@ -28,6 +28,7 @@ if TYPE_CHECKING:
 
     from src.app_state import AppState
     from src.excel_reader import SheetLayout
+    from src.models import ReferenceLine, ReferenceLineOrientation
     from src.sheet_view import SheetView
 
 # The measurements of the window itself, which every part has to agree on and no part owns.
@@ -42,6 +43,7 @@ NO_FILE = 'No file loaded — use Open… to choose an Excel sheet'
 # from another part is the same as the widget calling it. It is held here because the reset
 # and the file loading both reach for it and neither is built from the other.
 _SYNTHETIC_EVENT = cast('tk.Event[tk.Misc]', object())
+
 
 # The window every part of the panel is written against. The attributes are the state and
 # the widgets the parts share; the methods below them are the ones a part may call on
@@ -72,6 +74,7 @@ class _AppBase:
     panel: ttk.Frame
     # The canvas holding the scrollable column of options, which the wheel is bound to.
     _body_canvas: tk.Canvas
+    _body_inner: ttk.Frame
     tabs: ttk.Notebook
     _canvas_area: ttk.Frame
     figure: Figure
@@ -140,6 +143,8 @@ class _AppBase:
     y_label_size_var: tk.StringVar
     y_tick_font_var: tk.StringVar
     log_var: tk.StringVar
+    reference_lines_frame: ttk.Labelframe
+    reference_color_buttons: dict[int, tk.Button]
 
     # How the marks are drawn, and the frame around them.
     connect_var: tk.BooleanVar
@@ -344,7 +349,6 @@ class _AppBase:
         """Return the name of the loaded workbook, or a note that none is."""
         raise NotImplementedError
 
-
     def _select_row(self, index: int) -> None:
         """Highlight one row of the sample list and show its style.
 
@@ -356,7 +360,6 @@ class _AppBase:
     def _selected_indices(self) -> tuple[int, ...]:  # pragma: no cover - declared, not implemented here
         """Return the positions of the highlighted rows, in the order they are shown."""
         raise NotImplementedError
-
 
     def _apply_indices(self, indices: Sequence[int]) -> None:
         """Put the samples back in the order these positions name.
@@ -425,3 +428,32 @@ class _AppBase:
             _event: Unused; the fields apply the values themselves.
 
         """
+
+    def _sync_reference_lines(self) -> None:
+        """Rebuild the controls showing the current reference lines."""
+
+    def _on_body_wheel(self, event: tk.Event[tk.Misc]) -> str:
+        """Scroll the active control panel when its content exceeds the viewport."""
+        raise NotImplementedError
+
+    def _add_reference_line(self, orientation: ReferenceLineOrientation) -> None:
+        """Add a guide line in the requested direction."""
+
+    def _remove_reference_line(self, index: int) -> None:
+        """Remove a guide line by its current position."""
+
+    def _update_reference_line(self, index: int, line: ReferenceLine) -> bool:
+        """Apply one edited guide line."""
+        raise NotImplementedError
+
+    def _update_reference_position(self, index: int, variable: tk.StringVar) -> None:
+        """Apply a guide line's position field."""
+
+    def _update_reference_style(self, index: int, variable: tk.StringVar) -> None:
+        """Apply a guide line's style field."""
+
+    def _update_reference_width(self, index: int, variable: tk.StringVar) -> None:
+        """Apply a guide line's thickness field."""
+
+    def _choose_reference_color(self, index: int) -> None:
+        """Choose a guide line's color."""

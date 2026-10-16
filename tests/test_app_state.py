@@ -6,7 +6,17 @@ import matplotlib
 import pytest
 from src.app_state import DEFAULT_LINE_WIDTH, AppState, normalize_hex
 from src.graphpad_style import DEFAULT_PALETTE, palette_colors
-from src.models import LOG_HEADROOM, Y_MAX_HEADROOM, Dataset, PlotConfig, Sample, XYPoint, XYSeries
+from src.models import (
+    DEFAULT_REFERENCE_LINE_STYLE,
+    LOG_HEADROOM,
+    Y_MAX_HEADROOM,
+    Dataset,
+    PlotConfig,
+    ReferenceLine,
+    Sample,
+    XYPoint,
+    XYSeries,
+)
 
 
 @pytest.fixture
@@ -146,6 +156,49 @@ def test_a_reset_clears_both_thicknesses(state: AppState) -> None:
     state.reset()
     assert state.config.axis_line_width is None
     assert state.config.bar_line_width is None
+
+
+def test_reference_lines_default_to_dashed_black_at_the_prism_width(state: AppState) -> None:
+    assert state.add_reference_line('horizontal', 12.0)
+    line = state.config.reference_lines[0]
+    assert line.orientation == 'horizontal'
+    assert line.position == 12.0
+    assert line.linestyle == DEFAULT_REFERENCE_LINE_STYLE
+    assert line.color == '#000000'
+    assert line.linewidth == DEFAULT_LINE_WIDTH
+
+
+def test_reference_lines_can_be_updated_and_removed(state: AppState) -> None:
+    state.add_reference_line('vertical', 2.0)
+    assert state.update_reference_line(0, ReferenceLine('vertical', 3.5, ':', '#ABC', 2.5))
+    assert state.config.reference_lines[0] == ReferenceLine('vertical', 3.5, ':', '#aabbcc', 2.5)
+    assert state.remove_reference_line(0)
+    assert state.config.reference_lines == ()
+    assert not state.remove_reference_line(0)
+
+
+@pytest.mark.parametrize(
+    'line',
+    (
+        ReferenceLine('horizontal', float('nan')),
+        ReferenceLine('vertical', float('inf')),
+        ReferenceLine('vertical', 1.0, linestyle='unknown'),  # type: ignore[arg-type]
+        ReferenceLine('vertical', 1.0, color='not-a-color'),
+        ReferenceLine('vertical', 1.0, linewidth=0.0),
+        ReferenceLine('vertical', 1.0, linewidth=11.0),
+    ),
+)
+def test_invalid_reference_line_edits_are_refused(state: AppState, line: ReferenceLine) -> None:
+    state.add_reference_line('horizontal', 4.0)
+    assert not state.update_reference_line(0, line)
+    assert state.config.reference_lines[0].position == 4.0
+
+
+def test_reset_clears_reference_lines(state: AppState) -> None:
+    state.add_reference_line('horizontal', 4.0)
+    state.add_reference_line('vertical', 3.0)
+    state.reset()
+    assert state.config.reference_lines == ()
 
 
 def test_the_grouped_layout_is_off_until_it_is_asked_for(state: AppState) -> None:

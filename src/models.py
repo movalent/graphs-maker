@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from statistics import fmean, stdev
 from typing import Literal
 
-from src.graphpad_style import DEFAULT_PALETTE, FALLBACK_FONTS
+from src.graphpad_style import DEFAULT_LINE_WIDTH, DEFAULT_PALETTE, FALLBACK_FONTS
 
 ErrorKind = Literal['sd', 'sem', 'none']
 ColorBy = Literal['sample', 'group']
@@ -68,6 +68,19 @@ DEFAULT_Y_AXIS_LENGTH_CM = 8.0
 # using rather than a default that was never applied. It is taken from that preference list
 # rather than written out again, so the two cannot drift apart.
 DEFAULT_FONT_TYPE: str = FALLBACK_FONTS[0]
+# The style labels shown by the reference-line controls map directly to matplotlib line styles.
+ReferenceLineOrientation = Literal['horizontal', 'vertical']
+REFERENCE_LINE_ORIENTATIONS: tuple[ReferenceLineOrientation, ...] = ('horizontal', 'vertical')
+ReferenceLineStyle = Literal['-', '--', ':', '-.']
+REFERENCE_LINE_STYLES: tuple[ReferenceLineStyle, ...] = ('-', '--', ':', '-.')
+REFERENCE_LINE_STYLE_LABELS: dict[ReferenceLineStyle, str] = {
+    '-': 'Solid',
+    '--': 'Dashed',
+    ':': 'Dotted',
+    '-.': 'Dash-dot',
+}
+DEFAULT_REFERENCE_LINE_STYLE: ReferenceLineStyle = '--'
+DEFAULT_REFERENCE_LINE_COLOR = '#000000'
 # The shape a point is drawn as, and the caption each is offered under. The shape is held
 # here rather than in the window so that the caption a user reads and the mark the renderer
 # draws cannot drift apart, the same reason the positions above are.
@@ -297,6 +310,26 @@ class Dataset:
         return tuple(picked + rest)
 
 
+@dataclass(frozen=True, slots=True)
+class ReferenceLine:
+    """A horizontal or vertical guide drawn across the plot in data coordinates.
+
+    Attributes:
+        orientation: Whether the line runs horizontally or vertically.
+        position: The y coordinate for a horizontal line or x coordinate for a vertical line.
+        linestyle: Matplotlib line style.
+        color: Hex color used to draw the line.
+        linewidth: Thickness in points.
+
+    """
+
+    orientation: ReferenceLineOrientation
+    position: float
+    linestyle: ReferenceLineStyle = DEFAULT_REFERENCE_LINE_STYLE
+    color: str = DEFAULT_REFERENCE_LINE_COLOR
+    linewidth: float = DEFAULT_LINE_WIDTH
+
+
 @dataclass(slots=True)
 class PlotConfig:
     """User adjustable presentation settings for the graph.
@@ -353,6 +386,7 @@ class PlotConfig:
         legend_size: Size of the legend text, or ``None`` for the Prism default.
         axis_line_width: Thickness of the axis lines and the value axis tick marks in points,
             or ``None`` for the Prism default.
+        reference_lines: Horizontal and vertical guide lines drawn at their data coordinates.
         bar_line_width: Thickness of the bar outlines, the error bar lines and the group band
             lines in points, or ``None`` for the Prism default.
         chart: Which sort of graph to draw.
@@ -449,3 +483,4 @@ class PlotConfig:
     point_labels: bool = False
     label_series: tuple[str, ...] = ()
     series_order: tuple[str, ...] = ()
+    reference_lines: tuple[ReferenceLine, ...] = ()

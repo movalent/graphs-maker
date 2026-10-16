@@ -6,6 +6,7 @@ can be tested without opening a window.
 
 from __future__ import annotations
 
+import math
 import re
 from collections.abc import Sequence
 from typing import Literal
@@ -16,15 +17,21 @@ from src.models import (
     DEFAULT_DECIMALS,
     DEFAULT_LEGEND_POSITION,
     DEFAULT_POINT_TYPE,
+    DEFAULT_REFERENCE_LINE_COLOR,
+    DEFAULT_REFERENCE_LINE_STYLE,
     DEFAULT_TITLE_POSITION,
     DEFAULT_X_AXIS_LENGTH_CM,
     DEFAULT_Y_AXIS_LENGTH_CM,
     LOG_HEADROOM,
     POINT_TYPES,
+    REFERENCE_LINE_ORIENTATIONS,
+    REFERENCE_LINE_STYLES,
     Y_MAX_HEADROOM,
     Dataset,
     PlotConfig,
     PointType,
+    ReferenceLine,
+    ReferenceLineOrientation,
     Sample,
 )
 
@@ -221,7 +228,6 @@ class AppState:
         """
         order = self.entry_order
         return order.index(name) if name in order else -1
-
 
     def move_sample(self, index: int, target: int) -> tuple[str, ...]:
         """Move one sample to another position, clamped to the valid range.
@@ -612,6 +618,73 @@ class AppState:
         chosen = self.config.axis_line_width if target == 'axis' else self.config.bar_line_width
         return chosen if chosen is not None else DEFAULT_LINE_WIDTH
 
+    def add_reference_line(self, orientation: ReferenceLineOrientation, position: float = 0.0) -> bool:
+        """Add a reference line with the default dashed black appearance.
+
+        Args:
+            orientation: Whether the line runs horizontally or vertically.
+            position: The data coordinate where the line is placed.
+
+        Returns:
+            ``True`` when the position and orientation are usable.
+
+        """
+        if orientation not in REFERENCE_LINE_ORIENTATIONS or not math.isfinite(position):
+            return False
+        self.config.reference_lines += (
+            ReferenceLine(
+                orientation=orientation,
+                position=position,
+                linestyle=DEFAULT_REFERENCE_LINE_STYLE,
+                color=DEFAULT_REFERENCE_LINE_COLOR,
+                linewidth=DEFAULT_LINE_WIDTH,
+            ),
+        )
+        return True
+
+    def update_reference_line(self, index: int, line: ReferenceLine) -> bool:
+        """Replace a reference line after validating its appearance and position.
+
+        Args:
+            index: Position in the current reference-line collection.
+            line: The line with its requested new settings.
+
+        Returns:
+            ``True`` when the line is valid and was replaced.
+
+        """
+        if not 0 <= index < len(self.config.reference_lines):
+            return False
+        color = normalize_hex(line.color)
+        width = _clamp_line_width(line.linewidth)
+        if (
+            line.orientation not in REFERENCE_LINE_ORIENTATIONS
+            or line.linestyle not in REFERENCE_LINE_STYLES
+            or not math.isfinite(line.position)
+            or color is None
+            or width is None
+        ):
+            return False
+        lines = list(self.config.reference_lines)
+        lines[index] = ReferenceLine(line.orientation, line.position, line.linestyle, color, width)
+        self.config.reference_lines = tuple(lines)
+        return True
+
+    def remove_reference_line(self, index: int) -> bool:
+        """Remove a reference line by its current position in the collection.
+
+        Args:
+            index: Position in the current reference-line collection.
+
+        Returns:
+            ``True`` when a line existed at that position.
+
+        """
+        if not 0 <= index < len(self.config.reference_lines):
+            return False
+        self.config.reference_lines = self.config.reference_lines[:index] + self.config.reference_lines[index + 1 :]
+        return True
+
     def reset(self) -> None:
         """Discard every adjustment, including both entry orders, and restore the defaults.
 
@@ -647,6 +720,7 @@ class AppState:
         self.config.title_size = None
         self.config.legend_size = None
         self.config.axis_line_width = None
+        self.config.reference_lines = ()
         self.config.bar_line_width = None
         self.config.preview_decimals = DEFAULT_DECIMALS
         self.config.x_max = None

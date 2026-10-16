@@ -40,6 +40,7 @@ from src.models import (
     Orientation,
     PlotConfig,
     PointType,
+    ReferenceLine,
     Sample,
     XYPoint,
     XYSeries,
@@ -729,6 +730,62 @@ def test_the_two_thicknesses_are_independent(simple_dataset: Dataset) -> None:
 def test_the_axis_thickness_leaves_the_bars_alone(simple_dataset: Dataset) -> None:
     figure = plot_dataset(simple_dataset, PlotConfig(axis_line_width=4.0))
     assert {patch.get_linewidth() for patch in bars_of(figure)} == {DEFAULT_LINE_WIDTH}
+
+
+@pytest.mark.parametrize(
+    ('chart', 'orientation', 'dataset_fixture'),
+    (
+        ('bar', 'vertical', 'simple'),
+        ('bar', 'horizontal', 'simple'),
+        ('scatter', 'vertical', 'scatter'),
+    ),
+)
+def test_reference_lines_are_styled_in_data_coordinates(
+    request: pytest.FixtureRequest,
+    chart: str,
+    orientation: str,
+    dataset_fixture: str,
+) -> None:
+    dataset = request.getfixturevalue(f'{dataset_fixture}_dataset')
+    lines = (
+        ReferenceLine('horizontal', 25.0, '--', '#123456', 2.5),
+        ReferenceLine('vertical', 1.25, ':', '#654321', 3.0),
+    )
+    figure = plot_dataset(
+        dataset,
+        PlotConfig(chart=chart, orientation=orientation, reference_lines=lines),
+    )
+    axes = axes_of(figure)
+    horizontal = next(line for line in axes.lines if list(line.get_ydata()) == [25.0, 25.0])
+    vertical = next(line for line in axes.lines if list(line.get_xdata()) == [1.25, 1.25])
+    assert horizontal.get_linestyle() == '--'
+    assert horizontal.get_linewidth() == pytest.approx(2.5)
+    assert to_hex(horizontal.get_color()) == '#123456'
+    assert vertical.get_linestyle() == ':'
+    assert vertical.get_linewidth() == pytest.approx(3.0)
+    assert to_hex(vertical.get_color()) == '#654321'
+
+
+@pytest.mark.parametrize('chart', ('bar', 'scatter'))
+def test_reference_lines_do_not_expand_data_limits(
+    request: pytest.FixtureRequest,
+    chart: str,
+) -> None:
+    dataset = request.getfixturevalue('simple_dataset' if chart == 'bar' else 'scatter_dataset')
+    baseline = axes_of(plot_dataset(dataset, PlotConfig(chart=chart)))
+    figure = plot_dataset(
+        dataset,
+        PlotConfig(
+            chart=chart,
+            reference_lines=(
+                ReferenceLine('horizontal', 10_000.0),
+                ReferenceLine('vertical', 10_000.0),
+            ),
+        ),
+    )
+    axes = axes_of(figure)
+    assert axes.get_xlim() == pytest.approx(baseline.get_xlim())
+    assert axes.get_ylim() == pytest.approx(baseline.get_ylim())
 
 
 def test_merging_groups_draws_one_band(simple_dataset: Dataset) -> None:
@@ -1469,7 +1526,6 @@ def test_a_vertical_graph_keeps_the_value_label_on_the_y_axis(simple_dataset: Da
     ax = axes_of(plot_dataset(simple_dataset, PlotConfig(orientation='vertical')))
     assert ax.get_ylabel() == simple_dataset.y_label
     assert ax.get_xlabel() == ''
-
 
 
 def _scatter_figure(dataset: Dataset, config: PlotConfig) -> Figure:
