@@ -81,6 +81,62 @@ def test_window_builds_and_draws(app: GraphPadApp) -> None:
     assert len(app.canvas.figure.axes) == 1
 
 
+def test_undo_and_redo_keyboard_shortcuts(app: GraphPadApp) -> None:
+    app.title_var.set('Edited title')
+    assert app.state.config.title == 'Edited title'
+
+    app.root.focus_force()
+    app.root.update()
+    assert not app._text_widget_focused()
+    app.root.event_generate('<Control-z>')
+    app.root.update()
+    assert app.state.config.title is None
+
+    app.root.event_generate('<Control-y>')
+    app.root.update()
+    assert app.state.config.title == 'Edited title'
+
+    app.root.event_generate('<Control-z>')
+    app.root.update()
+    assert app.state.config.title is None
+
+    app.root.event_generate('<Control-Shift-KeyPress-Z>')
+    app.root.update()
+    assert app.state.config.title == 'Edited title'
+    assert app.root.bind('<Control-Shift-KeyPress-Z>')
+
+
+def test_undo_shortcut_leaves_text_editing_to_the_focused_entry(
+    app: GraphPadApp, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    app.title_var.set('Edited title')
+    entry = ttk.Entry(app.root)
+    monkeypatch.setattr(app.root, 'focus_get', lambda: entry)
+
+    assert app._undo_shortcut(SimpleNamespace()) is None
+    assert app.state.config.title == 'Edited title'
+
+
+def test_reset_is_one_undoable_edit(app: GraphPadApp) -> None:
+    app.title_var.set('Before reset')
+    app._reset()
+
+    assert app.state.config.title is None
+    assert app._undo()
+    assert app.state.config.title == 'Before reset'
+    assert app.title_var.get() == 'Before reset'
+
+
+def test_preview_rounding_is_undoable(app: GraphPadApp) -> None:
+    app.decimals_var.set('4')
+    app._update_preview_decimals()
+
+    assert app.state.config.preview_decimals == 4
+    assert app._undo()
+    assert app.state.config.preview_decimals == 2
+    assert app.decimals_var.get() == '2'
+
+
 def test_the_list_has_a_column_for_each_name(app: GraphPadApp) -> None:
     assert app.listbox.cget('columns') == ('sample', 'group')
     assert app.listbox.heading('sample', 'text') == 'Sample'
@@ -893,6 +949,22 @@ def test_a_marked_sheet_arrives_with_its_rows_already_assigned(blank_app: GraphP
     assert blank_app.sheet.role_row(Role.GROUP) == 0
     assert blank_app.sheet.role_row(Role.CONDITIONS) == 1
     assert blank_app.sheet.columns == blank_app.sheet.measured_columns()
+
+
+def test_preview_column_selection_can_be_undone_and_redone(blank_app: GraphPadApp) -> None:
+    assert blank_app.load_file(INPUT_FILE)
+    original_dataset = blank_app.state.dataset
+    original_columns = blank_app.sheet.columns
+    omitted_column = original_columns[0]
+
+    blank_app.sheet.toggle_column(omitted_column)
+    assert blank_app.state.dataset is not original_dataset
+    assert blank_app._undo()
+    assert blank_app.state.dataset is original_dataset
+    assert blank_app.sheet.columns == original_columns
+
+    assert blank_app._redo()
+    assert blank_app.sheet.columns == tuple(column for column in original_columns if column != omitted_column)
 
 
 def test_a_row_pick_only_changes_the_graph_once_it_is_given_a_role(blank_app: GraphPadApp) -> None:

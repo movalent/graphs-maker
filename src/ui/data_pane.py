@@ -284,6 +284,30 @@ class DataPaneMixin(_AppBase):
         else:
             self.sheet.select_all_columns()
             self._describe_column_selection()
+
+    def _sync_preview_from_state(self) -> None:
+        """Restore the sheet table, roles and selection represented by the current snapshot."""
+        table = self.sheet.table
+        self.sheet.set_table(table)
+        if table is None:
+            self.sheet_caption.configure(text=NO_FILE)
+            return
+        scatter = self.state.config.chart == 'scatter'
+        self.sheet.set_mode('x_and_y' if scatter else 'columns')
+        self.sheet.set_assignment(
+            {Role(role): columns for role, columns in self.state.preview_assignment}
+        )
+        if scatter:
+            self.sheet.set_selection(self.state.config.x_columns, self.state.config.x_row)
+        else:
+            columns = self.state.columns
+            if columns is None:
+                columns = self.sheet.measured_columns()
+            self.sheet.set_selection(columns, None)
+        if scatter:
+            self._describe_scatter_selection()
+        else:
+            self._describe_column_selection()
     def _describe_column_selection(self) -> None:
         """Say how many columns of the sheet the bar graph is drawn from."""
         chosen = self.sheet.columns
@@ -635,6 +659,10 @@ class DataPaneMixin(_AppBase):
         # The preview reads the file again, so it is filled last and only once the sheet is
         # known to be readable.
         self._sync_sheet_pane()
+        self.state.set_preview_assignment(
+            {role.value: columns for role, columns in self.sheet.assignment.items()}
+        )
+        self.state.clear_history()
         self._warn_about(caught)
         return True
     def _open_file(self) -> None:
@@ -725,3 +753,7 @@ class DataPaneMixin(_AppBase):
             self.decimals_var.set(str(chosen))
         self.state.config.preview_decimals = chosen
         self.sheet.set_decimals(chosen)
+        self.state.set_preview_assignment(
+            {role.value: columns for role, columns in self.sheet.assignment.items()}
+        )
+        self.state.record_edit()

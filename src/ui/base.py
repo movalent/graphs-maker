@@ -62,6 +62,8 @@ class _AppBase:
     output_hint: Path | None
     # Set when the graph no longer matches the settings, and cleared by a reset.
     dirty: bool
+    # Suppresses history entries while a multi-part action such as Reset is applied.
+    _history_suspended: bool
     # The directory the file chooser opens in, so it opens where the user last was.
     last_dir: str
     # Suppresses the callbacks while the state is being pushed onto the widgets.
@@ -191,6 +193,14 @@ class _AppBase:
     def _mark_dirty(self) -> None:
         """Record that the graph no longer matches the settings."""
 
+    def _text_widget_focused(self) -> bool:
+        """Return whether a text-editing widget owns focus."""
+        return False
+
+    def _focused_text_widget(self) -> tk.Misc | None:
+        """Return the text-editing widget that owns focus, if there is one."""
+        return None
+
     def _sync_from_state(self) -> None:
         """Push the state onto every widget without the widgets reading as a user edit."""
 
@@ -222,6 +232,9 @@ class _AppBase:
 
     def _sync_sheet_pane(self) -> None:
         """Give the sheet preview the table, the mode and the rounding the graph is using."""
+
+    def _sync_preview_from_state(self) -> None:
+        """Restore the worksheet preview from the editable state."""
 
     def _apply_column_selection(self) -> None:
         """Rebuild the bar graph from only the columns left selected in the preview."""

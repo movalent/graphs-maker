@@ -382,20 +382,31 @@ class ShellMixin(_AppBase):
         self.root.title(f'{path.name} — GraphPad Prism style graph')
     def _reset(self) -> None:
         """Restore every setting to its default and redraw."""
-        self.state.reset()
-        self._sync_from_state()
-        self.redraw(mark_dirty=False)
+        self._history_suspended = True
+        try:
+            self.state.reset()
+            self._sync_from_state()
+            self.redraw(mark_dirty=False)
+            self._on_row_selected(_SYNTHETIC_EVENT)
+            # The column selection is part of what a reset undoes, so the sheet is re-read
+            # with every column again. Without this the graph would keep the samples the
+            # user had left out while the preview showed them all back in the graph.
+            if self.state.dataset.samples:
+                self.sheet.select_all_columns()
+                self._apply_column_selection()
+        finally:
+            self._history_suspended = False
+        self.state.set_preview_assignment(
+            {role.value: columns for role, columns in self.sheet.assignment.items()}
+        )
+        self.state.record_edit()
         self.dirty = False
-        self._on_row_selected(_SYNTHETIC_EVENT)
-        # The column selection is part of what a reset undoes, so the sheet is re-read with
-        # every column again. Without this the graph would keep the samples the user had
-        # left out while the preview showed them all back in the graph. The re-read is asked
-        # for explicitly because resetting the selection is a display change, not a click.
-        if self.state.dataset.samples:
-            self.sheet.select_all_columns()
-            self._apply_column_selection()
-            self.dirty = False
     def _mark_dirty(self) -> None:
         """Record that the graph was adjusted, so a new file asks before discarding it."""
         if not self.syncing and (self.state.dataset.samples or self.state.dataset.series):
+            self.state.set_preview_assignment(
+                {role.value: columns for role, columns in self.sheet.assignment.items()}
+            )
+            if not self._history_suspended:
+                self.state.record_edit(coalesce=self._focused_text_widget())
             self.dirty = True

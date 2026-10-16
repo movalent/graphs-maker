@@ -6,9 +6,11 @@ can be tested without opening a window.
 
 from __future__ import annotations
 
+import copy
 import math
 import re
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from typing import Literal
 
 from src.graphpad_style import DEFAULT_LINE_WIDTH, DEFAULT_PALETTE, default_color
@@ -46,6 +48,7 @@ MIN_LINE_WIDTH = 0.1
 MAX_LINE_WIDTH = 10.0
 # Which of the two sets of lines a thickness applies to: the frame of the graph, or the bars.
 LineTarget = Literal['axis', 'bar']
+HISTORY_LIMIT = 20
 HATCH_PATTERNS: tuple[str, ...] = ('', '//', '\\\\\\', '|||', '---', '+++', 'xxx', 'ooo', 'OOO', '...', '***')
 # The same patterns as they are offered in the window. The two tuples are index aligned, so a
 # pattern is picked from the list by the same position that the user sees.
@@ -106,6 +109,16 @@ def _clamp_line_width(value: float | None) -> float | None:
     return value
 
 
+@dataclass(slots=True)
+class _StateSnapshot:
+    dataset: Dataset
+    config: PlotConfig
+    columns: tuple[int, ...] | None
+    sheet_order: tuple[str, ...]
+    sheet_series_order: tuple[str, ...]
+    preview_assignment: tuple[tuple[str, tuple[int, ...]], ...]
+
+
 class AppState:
     """The dataset being edited together with the presentation settings to apply to it.
 
@@ -118,6 +131,8 @@ class AppState:
         columns: Worksheet columns currently read, zero based and counting the label
             column, or ``None`` when every measured column is read. The data preview sets
             this, so a column can be left out of the graph without editing the sheet.
+        preview_assignment: Worksheet roles chosen in the data preview, kept with history
+            so a restored graph and its preview describe the same selection.
 
     """
 
@@ -134,12 +149,120 @@ class AppState:
         self.columns: tuple[int, ...] | None = None
         self.sheet_order = tuple(sample.name for sample in dataset.samples)
         self.sheet_series_order = tuple(series.name for series in dataset.series)
+        self.preview_assignment: tuple[tuple[str, tuple[int, ...]], ...] = ()
+        self._undo_stack: list[_StateSnapshot] = []
+        self._redo_stack: list[_StateSnapshot] = []
+        self._coalescing_edit: object | None = None
         if not self.config.sample_order:
             # No explicit order was supplied, so start from the worksheet order. A supplied
             # one is kept, because the command line can pass a partial order through.
             self.config.sample_order = self.sheet_order
         if not self.config.series_order:
             self.config.series_order = self.sheet_series_order
+        self._history_current = self._snapshot()
+
+    def _snapshot(self) -> _StateSnapshot:
+        """Copy the editable state while retaining immutable data objects by reference."""
+        return _StateSnapshot(
+            dataset=self.dataset,
+            config=copy.deepcopy(self.config),
+            columns=self.columns,
+            sheet_order=self.sheet_order,
+            sheet_series_order=self.sheet_series_order,
+            preview_assignment=self.preview_assignment,
+        )
+
+    def _restore(self, snapshot: _StateSnapshot) -> None:
+        """Restore one snapshot without sharing its mutable configuration with history."""
+        self.dataset = snapshot.dataset
+        self.config = copy.deepcopy(snapshot.config)
+        self.columns = snapshot.columns
+        self.sheet_order = snapshot.sheet_order
+        self.sheet_series_order = snapshot.sheet_series_order
+        self.preview_assignment = snapshot.preview_assignment
+        self._coalescing_edit = None
+        self._history_current = self._snapshot()
+
+    @property
+    def can_undo(self) -> bool:
+        """Return whether an earlier edit is available."""
+        return bool(self._undo_stack)
+
+    @property
+    def can_redo(self) -> bool:
+        """Return whether an undone edit is available again."""
+        return bool(self._redo_stack)
+
+    def set_preview_assignment(self, assignment: Mapping[str, Sequence[int]]) -> None:
+        """Remember the worksheet roles chosen in the data preview.
+
+        Args:
+            assignment: Role names mapped to the worksheet row or columns carrying them.
+
+        """
+        self.preview_assignment = tuple(
+            (role, tuple(indices)) for role, indices in assignment.items()
+        )
+
+    def record_edit(self, coalesce: object | None = None) -> bool:
+        """Record the latest user change, if it differs from the last saved history state.
+
+        Consecutive updates from one focused text field can be coalesced into one edit.
+
+        Args:
+            coalesce: Identity of the text field whose consecutive updates are grouped.
+
+        Returns:
+            ``True`` when a new undo step was added.
+
+        """
+        current = self._snapshot()
+        if current == self._history_current:
+            if coalesce is None:
+                self._coalescing_edit = None
+            return False
+        if coalesce is None or coalesce is not self._coalescing_edit:
+            self._undo_stack.append(self._history_current)
+            del self._undo_stack[:-HISTORY_LIMIT]
+            self._redo_stack.clear()
+        self._history_current = current
+        self._coalescing_edit = coalesce
+        return True
+
+    def undo(self) -> bool:
+        """Restore the previous edit when one is available.
+
+        Returns:
+            ``True`` when an earlier state was restored.
+
+        """
+        if not self._undo_stack:
+            return False
+        self._redo_stack.append(self._snapshot())
+        del self._redo_stack[:-HISTORY_LIMIT]
+        self._restore(self._undo_stack.pop())
+        return True
+
+    def redo(self) -> bool:
+        """Reapply the next undone edit when one is available.
+
+        Returns:
+            ``True`` when a later state was restored.
+
+        """
+        if not self._redo_stack:
+            return False
+        self._undo_stack.append(self._snapshot())
+        del self._undo_stack[:-HISTORY_LIMIT]
+        self._restore(self._redo_stack.pop())
+        return True
+
+    def clear_history(self) -> None:
+        """Start a fresh history from the current state."""
+        self._undo_stack.clear()
+        self._redo_stack.clear()
+        self._coalescing_edit = None
+        self._history_current = self._snapshot()
 
     def replace_dataset(self, dataset: Dataset) -> None:
         """Swap in a freshly read dataset, keeping the current settings.

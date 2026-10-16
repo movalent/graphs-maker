@@ -38,6 +38,69 @@ def test_initial_order_matches_the_sheet(state: AppState) -> None:
     assert state.index_of('Other') == 2
 
 
+def test_undo_and_redo_restore_config_and_preview_state(state: AppState) -> None:
+    initial_dataset = state.dataset
+    state.config.title = 'First'
+    state.config.colors['Control'] = '#123456'
+    state.columns = (1, 2)
+    state.set_preview_assignment({'Conditions': (0,), 'Y values': (1, 2)})
+    assert state.record_edit()
+
+    state.config.title = 'Second'
+    state.columns = (2,)
+    state.dataset = Dataset(samples=(Sample('Only', 'A', (1.0,)),))
+    state.set_preview_assignment({'Conditions': (1,), 'Y values': (2,)})
+    assert state.record_edit()
+
+    assert state.undo()
+    assert state.config.title == 'First'
+    assert state.config.colors == {'Control': '#123456'}
+    assert state.columns == (1, 2)
+    assert state.dataset is initial_dataset
+    assert state.preview_assignment == (('Conditions', (0,)), ('Y values', (1, 2)))
+
+    assert state.redo()
+    assert state.config.title == 'Second'
+    assert state.columns == (2,)
+    assert state.dataset.samples == (Sample('Only', 'A', (1.0,)),)
+    assert state.preview_assignment == (('Conditions', (1,)), ('Y values', (2,)))
+
+
+def test_recording_a_new_edit_clears_redo(state: AppState) -> None:
+    state.config.title = 'First'
+    state.record_edit()
+    assert state.undo()
+    state.config.title = 'Replacement'
+
+    assert state.record_edit()
+    assert not state.can_redo
+    assert not state.redo()
+    assert state.config.title == 'Replacement'
+
+
+def test_consecutive_text_updates_coalesce_into_one_edit(state: AppState) -> None:
+    state.config.title = 'A'
+    assert state.record_edit(coalesce=True)
+    state.config.title = 'A longer title'
+    assert state.record_edit(coalesce=True)
+
+    assert state.undo()
+    assert state.config.title is None
+    assert not state.can_undo
+
+
+def test_undo_history_is_limited_to_twenty_edits(state: AppState) -> None:
+    for number in range(21):
+        state.config.title = str(number)
+        assert state.record_edit()
+
+    for _ in range(20):
+        assert state.undo()
+
+    assert state.config.title == '0'
+    assert not state.can_undo
+
+
 def test_outline_colour_is_stored_and_normalized(state: AppState) -> None:
     assert state.set_edge_color('Other', '#abc')
     assert state.edge_of('Other') == '#aabbcc'

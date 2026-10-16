@@ -42,6 +42,7 @@ from src.app_state import AppState
 from src.excel_reader import SheetLayout, read_dataset
 from src.ui.axis_tab import AxisTabMixin
 from src.ui.base import (
+    _SYNTHETIC_EVENT,
     MIN_CANVAS_WIDTH,
     MIN_WINDOW_HEIGHT,
     PANEL_WIDTH,
@@ -118,6 +119,7 @@ class GraphPadApp(ShellMixin, SampleListMixin, DataPaneMixin, GeneralTabMixin, A
         self.input_path = input_path
         self.output_hint = output_hint
         self.dirty = False
+        self._history_suspended = False
         self.last_dir = '.'
         self.syncing = False
         # The rows chosen for each workbook, so a sheet is only asked about once. Keyed by
@@ -130,6 +132,9 @@ class GraphPadApp(ShellMixin, SampleListMixin, DataPaneMixin, GeneralTabMixin, A
         self.root.title('GraphPad Prism style graph')
         self.root.geometry('1100x720')
         self.root.minsize(PANEL_WIDTH + MIN_CANVAS_WIDTH, MIN_WINDOW_HEIGHT)
+        self.root.bind('<Control-z>', self._undo_shortcut)
+        self.root.bind('<Control-y>', self._redo_shortcut)
+        self.root.bind('<Control-Shift-KeyPress-Z>', self._redo_shortcut)
 
         style = ttk.Style(self.root)
         if 'vista' in style.theme_names():
@@ -188,6 +193,53 @@ class GraphPadApp(ShellMixin, SampleListMixin, DataPaneMixin, GeneralTabMixin, A
         finally:
             self.syncing = False
 
+    def _undo(self) -> bool:
+        """Undo the latest graph or preview edit and restore the window."""
+        if not self.state.undo():
+            return False
+        self._restore_history()
+        return True
+
+    def _redo(self) -> bool:
+        """Redo the latest undone graph or preview edit and restore the window."""
+        if not self.state.redo():
+            return False
+        self._restore_history()
+        return True
+
+    def _restore_history(self) -> None:
+        """Update every visible control after AppState restores an earlier snapshot."""
+        self._sync_from_state()
+        self._sync_preview_from_state()
+        self._on_row_selected(_SYNTHETIC_EVENT)
+        self.redraw(mark_dirty=False)
+        self.dirty = True
+
+    def _text_widget_focused(self) -> bool:
+        """Return whether a text-editing widget owns focus."""
+        return self._focused_text_widget() is not None
+
+    def _focused_text_widget(self) -> tk.Misc | None:
+        """Return the text-editing widget that owns focus, if there is one."""
+        focused = self.root.focus_get()
+        if isinstance(focused, (tk.Entry, tk.Text, ttk.Entry, ttk.Combobox, ttk.Spinbox)):
+            return focused
+        return None
+
+    def _undo_shortcut(self, _event: tk.Event[tk.Misc]) -> str | None:
+        """Handle Ctrl+Z unless a text field should receive it."""
+        if self._text_widget_focused():
+            return None
+        self._undo()
+        return 'break'
+
+    def _redo_shortcut(self, _event: tk.Event[tk.Misc]) -> str | None:
+        """Handle Ctrl+Y or Ctrl+Shift+Z unless a text field should receive it."""
+        if self._text_widget_focused():
+            return None
+        self._redo()
+        return 'break'
+
     def run(self) -> None:
         """Show the window and block until it is closed."""
         self.root.mainloop()
@@ -214,6 +266,3 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 if __name__ == '__main__':
     raise SystemExit(main())
-
-
-
