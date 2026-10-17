@@ -391,6 +391,31 @@ def test_automatic_y_max_leaves_headroom_above_the_tallest_mean(state: AppState)
     assert state.automatic_y_max() == pytest.approx(tallest * Y_MAX_HEADROOM)
 
 
+def test_automatic_y_max_uses_only_samples_staying_on_the_primary_axis(state: AppState) -> None:
+    state.config.secondary_y_axis_enabled = True
+    state.config.secondary_y_axis_samples = ('Third',)
+
+    assert state.automatic_y_max() == pytest.approx(33.0 * Y_MAX_HEADROOM)
+    assert state.automatic_secondary_y_max() == pytest.approx(42.0 * Y_MAX_HEADROOM)
+
+
+def test_automatic_y_max_splits_scatter_series_between_axes(state: AppState) -> None:
+    state.dataset = Dataset(
+        samples=(),
+        series=(
+            XYSeries('Primary', (XYPoint(1.0, 2.0), XYPoint(2.0, 3.0))),
+            XYSeries('Secondary', (XYPoint(1.0, 20.0), XYPoint(2.0, 30.0))),
+        ),
+        y_label='Response',
+    )
+    state.config.chart = 'scatter'
+    state.config.secondary_y_axis_enabled = True
+    state.config.secondary_y_axis_series = ('Secondary',)
+
+    assert state.automatic_y_max() == pytest.approx(3.0 * Y_MAX_HEADROOM)
+    assert state.automatic_secondary_y_max() == pytest.approx(30.0 * Y_MAX_HEADROOM)
+
+
 def test_automatic_y_max_grows_with_the_data(state: AppState) -> None:
     before = state.automatic_y_max()
     state.dataset = Dataset(
@@ -492,6 +517,16 @@ def test_reset_clears_every_new_setting(state: AppState) -> None:
     state.config.legend_position = 'right'
     state.config.title_position = 'center'
     state.config.connect_points = False
+    state.config.secondary_y_axis_enabled = True
+    state.config.secondary_y_axis_samples = ('Other',)
+    state.config.secondary_y_axis_series = ('Dose',)
+    state.config.secondary_y_label = 'Other units'
+    state.config.secondary_y_max = 50.0
+    state.config.secondary_y_min = 1.0
+    state.config.secondary_y_major_step = 5.0
+    state.config.secondary_log_axis = True
+    state.config.secondary_y_label_size = 13
+    state.config.secondary_y_font_size = 11
 
     state.reset()
 
@@ -508,6 +543,16 @@ def test_reset_clears_every_new_setting(state: AppState) -> None:
     assert state.config.legend_size is None
     assert state.config.connect_points is True
     assert state.config.y_label is None
+    assert state.config.secondary_y_axis_enabled is False
+    assert state.config.secondary_y_axis_samples == ()
+    assert state.config.secondary_y_axis_series == ()
+    assert state.config.secondary_y_label is None
+    assert state.config.secondary_y_max is None
+    assert state.config.secondary_y_min is None
+    assert state.config.secondary_y_major_step is None
+    assert state.config.secondary_log_axis is False
+    assert state.config.secondary_y_label_size is None
+    assert state.config.secondary_y_font_size is None
     assert state.group_of('Other') == 'B'
 
 

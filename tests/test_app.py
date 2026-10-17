@@ -17,7 +17,16 @@ from matplotlib.colors import to_hex
 from matplotlib.text import Text
 from src.app_state import DEFAULT_LINE_WIDTH, HATCH_LABELS, HATCH_PATTERNS, AppState
 from src.graphpad_style import DEFAULT_PALETTE, PALETTES, palette_colors
-from src.models import CHART_KINDS, CHART_LABELS, ORIENTATION_LABELS, ORIENTATIONS, Dataset, Sample
+from src.models import (
+    CHART_KINDS,
+    CHART_LABELS,
+    ORIENTATION_LABELS,
+    ORIENTATIONS,
+    Dataset,
+    Sample,
+    XYPoint,
+    XYSeries,
+)
 from src.sheet_view import CELL_HEIGHT, COLUMN_HEADER_HEIGHT, Role
 from src.ui import data_pane, shell, style_tab
 
@@ -3121,6 +3130,73 @@ def test_both_axes_stay_on_screen_for_either_kind_of_graph(blank_app: GraphPadAp
     blank_app._update_chart()
     blank_app.root.update()
     assert {'X axis', 'X max', 'Y axis', 'Y max'} <= _captions_in(_tab_frame(blank_app, 1))
+
+
+def test_secondary_y_axis_controls_start_collapsed_and_off(app: GraphPadApp) -> None:
+    assert not app.secondary_y_frame.winfo_manager()
+    assert app.secondary_y_enabled_var.get() is False
+    assert len(app.canvas.figure.axes) == 1
+
+    app.secondary_y_toggle_button.invoke()
+    app.root.update()
+    assert app.secondary_y_frame.winfo_manager() == 'pack'
+    assert {
+        'Enable secondary Y axis',
+        'Title',
+        'Y max',
+        'Y step',
+        'Y title text size',
+        'Y tick text size',
+        'Y axis type',
+        'Assign to secondary axis',
+    } <= _captions_in(app.secondary_y_frame)
+
+
+def test_secondary_y_axis_can_be_enabled_for_selected_bar_samples(app: GraphPadApp) -> None:
+    app.secondary_y_toggle_button.invoke()
+    variable = app.secondary_y_assign_vars['42C']
+    variable.set(True)
+    app._update_secondary_y_assignment('42C', variable)
+    app.secondary_y_enabled_var.set(True)
+    app._update_secondary_y_enabled()
+
+    assert app.state.config.secondary_y_axis_enabled
+    assert app.state.config.secondary_y_axis_samples == ('42C',)
+    assert len(app.canvas.figure.axes) == 2
+    assert len(app.canvas.figure.axes[0].patches) == 2
+    assert len(app.canvas.figure.axes[1].patches) == 1
+
+
+def test_secondary_y_assignment_choices_follow_scatter_series(blank_app: GraphPadApp) -> None:
+    blank_app.state.dataset = Dataset(
+        samples=(),
+        series=(
+            XYSeries('Dose A', (XYPoint(1.0, 10.0), XYPoint(2.0, 12.0))),
+            XYSeries('Dose B', (XYPoint(1.0, 100.0), XYPoint(2.0, 120.0))),
+        ),
+        y_label='Response',
+    )
+    blank_app.state.config.chart = 'scatter'
+    blank_app.chart_var.set('Scatter plot')
+    blank_app._sync_secondary_y_assignments()
+
+    assert set(blank_app.secondary_y_assign_vars) == {'Dose A', 'Dose B'}
+    variable = blank_app.secondary_y_assign_vars['Dose B']
+    variable.set(True)
+    blank_app._update_secondary_y_assignment('Dose B', variable)
+    blank_app.secondary_y_enabled_var.set(True)
+    blank_app._update_secondary_y_enabled()
+
+    assert blank_app.state.config.secondary_y_axis_series == ('Dose B',)
+    assert len(blank_app.canvas.figure.axes) == 2
+    assert list(blank_app.canvas.figure.axes[1].lines[0].get_ydata()) == [100.0, 120.0]
+
+
+def test_secondary_y_axis_activation_is_disabled_for_horizontal_bars(app: GraphPadApp) -> None:
+    app.state.config.orientation = 'horizontal'
+    app._sync_secondary_y_axis_availability()
+
+    assert str(app.secondary_y_enabled_check.cget('state')) == 'disabled'
 
 
 def test_the_x_range_is_greyed_out_for_a_bar_graph(blank_app: GraphPadApp) -> None:

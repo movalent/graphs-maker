@@ -123,7 +123,7 @@ class _AppBase:
     series_var: tk.StringVar
     series_entry: ttk.Entry
 
-    # The two axes, the settings they share, and the block of fields for each.
+    # The X and primary Y axes, their shared settings, and the optional secondary Y controls.
     axis_width_var: tk.StringVar
     axis_font_type_var: tk.StringVar
     x_title_var: tk.StringVar
@@ -147,6 +147,19 @@ class _AppBase:
     log_var: tk.StringVar
     reference_lines_frame: ttk.Labelframe
     reference_color_buttons: dict[int, tk.Button]
+    secondary_y_expanded: bool
+    secondary_y_toggle_button: ttk.Button
+    secondary_y_frame: ttk.Frame
+    secondary_y_enabled_check: ttk.Checkbutton
+    secondary_y_enabled_var: tk.BooleanVar
+    secondary_y_title_var: tk.StringVar
+    secondary_y_max_var: tk.StringVar
+    secondary_y_step_var: tk.StringVar
+    secondary_y_label_size_var: tk.StringVar
+    secondary_y_tick_font_var: tk.StringVar
+    secondary_y_log_var: tk.StringVar
+    secondary_y_assignment_frame: ttk.Frame
+    secondary_y_assign_vars: dict[str, tk.BooleanVar]
 
     # How the marks are drawn, and the frame around them.
     connect_var: tk.BooleanVar
@@ -303,6 +316,12 @@ class _AppBase:
 
     def _sync_scatter_panels(self) -> None:
         """Show, hide or grey out the controls that depend on the kind of graph."""
+
+    def _sync_secondary_y_axis_availability(self) -> None:
+        """Update secondary-axis controls to match the graph orientation."""
+
+    def _sync_secondary_y_assignments(self) -> None:
+        """Rebuild the sample or series choices assigned to the secondary axis."""
 
     def _build_color_row(self, panel: tk.Widget) -> None:
         """Create the row that types a colour as a hex code.

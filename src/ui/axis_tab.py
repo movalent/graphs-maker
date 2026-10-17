@@ -1,8 +1,9 @@
 """The Axis tab: the name, scale, range and fonts of each axis.
 
-The two axes are separated into blocks because they are set the same way but mean different
-things. The settings that belong to the frame rather than to either axis sit above the two
-blocks, unsectioned, because putting them inside one of them would imply that axis owns them.
+The X and primary Y axes are separated into blocks because they are set the same way but mean
+different things. A secondary Y axis has its own optional, collapsed block. The settings that
+belong to the frame rather than to either axis sit above the blocks because putting them
+inside one would imply that axis owns them.
 
 The fields a bar graph has no use for are greyed out rather than hidden, so the block keeps
 one shape as the kind of graph changes and a value already typed into one is not lost.
@@ -49,7 +50,7 @@ def _positive_length(text: str, previous: float) -> float:
 
 
 class AxisTabMixin(_AppBase):
-    """The name, scale, range and fonts of each of the two axes."""
+    """The names, scales, ranges and fonts of the graph axes."""
 
     def _sync_axis(self) -> None:
         """Put the two axis blocks back, showing the settings that are really in use."""
@@ -76,15 +77,28 @@ class AxisTabMixin(_AppBase):
         # The thickness field shows the value in use, so an untouched field is never read as
         # a request to fix the line at the default the graph already uses.
         self.axis_width_var.set(f'{self.state.line_width_of("axis"):g}')
+        self.secondary_y_enabled_var.set(config.secondary_y_axis_enabled)
+        self.secondary_y_title_var.set(config.secondary_y_label or self.state.dataset.y_label)
+        self.secondary_y_max_var.set(
+            shown_number(config.secondary_y_max, self.state.automatic_secondary_y_max())
+        )
+        self.secondary_y_step_var.set(
+            shown_number(config.secondary_y_major_step, self._secondary_automatic_step())
+        )
+        self.secondary_y_label_size_var.set(
+            '' if config.secondary_y_label_size is None else str(config.secondary_y_label_size)
+        )
+        self.secondary_y_tick_font_var.set(str(config.secondary_y_font_size or config.font_size or DEFAULT_TICK_FONT))
+        self.secondary_y_log_var.set('Log' if config.secondary_log_axis else 'Linear')
+        self._sync_secondary_y_assignments()
+        self._sync_secondary_y_axis_availability()
         self._sync_reference_lines()
 
     def _build_axis_tab(self, tab: ttk.Frame) -> None:
         """Create the tab holding the name, scale, range and fonts of each axis.
 
-        The two axes are separated into blocks of their own because they are set the same
-        way but mean different things. The settings that genuinely belong to the frame
-        rather than to either axis sit above the blocks, unsectioned, because putting them
-        inside one of the blocks would imply that axis owns them.
+        The X and primary Y axes have blocks of their own. The optional secondary Y axis is
+        kept in a collapsed block, and settings shared by the frame sit above the blocks.
 
         Args:
             tab: The Axis tab frame.
@@ -103,6 +117,7 @@ class AxisTabMixin(_AppBase):
 
         self._build_x_axis(section(tab, 'X axis'))
         self._build_y_axis(section(tab, 'Y axis'))
+        self._build_secondary_y_axis(tab)
         self.reference_lines_frame = section(tab, 'Reference lines')
         ttk.Button(
             self.reference_lines_frame,
@@ -114,6 +129,198 @@ class AxisTabMixin(_AppBase):
             text='Add vertical line',
             command=lambda: self._add_reference_line('vertical'),
         ).pack(fill=tk.X, pady=(4, 0))
+
+    def _build_secondary_y_axis(self, tab: ttk.Frame) -> None:
+        """Build the optional, initially collapsed right-side value-axis controls."""
+        self.secondary_y_expanded = False
+        self.secondary_y_toggle_button = ttk.Button(
+            tab,
+            text='Secondary Y axis  +',
+            command=self._toggle_secondary_y_axis,
+        )
+        self.secondary_y_toggle_button.pack(fill=tk.X, pady=(10, 0))
+        self.secondary_y_frame = ttk.Frame(tab, padding=6, relief=tk.GROOVE, borderwidth=1)
+
+        self.secondary_y_enabled_var = tk.BooleanVar(value=False)
+        self.secondary_y_enabled_check = ttk.Checkbutton(
+            self.secondary_y_frame,
+            text='Enable secondary Y axis',
+            variable=self.secondary_y_enabled_var,
+            command=self._update_secondary_y_enabled,
+        )
+        self.secondary_y_enabled_check.pack(anchor=tk.W)
+        ttk.Label(
+            self.secondary_y_frame,
+            text='Values are assigned per scatter series or bar sample.',
+            font=('Segoe UI', 8),
+            wraplength=PANEL_WIDTH - 60,
+        ).pack(anchor=tk.W, pady=(2, 0))
+
+        ttk.Label(self.secondary_y_frame, text='Title', font=('Segoe UI', 8)).pack(anchor=tk.W, pady=(8, 0))
+        self.secondary_y_title_var = tk.StringVar()
+        title_entry = ttk.Entry(self.secondary_y_frame, textvariable=self.secondary_y_title_var)
+        title_entry.pack(fill=tk.X)
+        title_entry.bind('<Return>', lambda _e: self._update_secondary_y_title())
+        title_entry.bind('<FocusOut>', lambda _e: self._update_secondary_y_title())
+
+        self.secondary_y_max_var = tk.StringVar()
+        self.secondary_y_step_var = tk.StringVar()
+        pair_row(
+            self.secondary_y_frame,
+            ('Y max', self.secondary_y_max_var, (), self._update_secondary_y_range),
+            ('Y step', self.secondary_y_step_var, (), self._update_secondary_y_range),
+        )
+        self.secondary_y_label_size_var = tk.StringVar()
+        number_row(
+            self.secondary_y_frame,
+            'Y title text size',
+            self.secondary_y_label_size_var,
+            self._update_fonts,
+        )
+        self.secondary_y_tick_font_var = tk.StringVar()
+        number_row(
+            self.secondary_y_frame,
+            'Y tick text size',
+            self.secondary_y_tick_font_var,
+            self._update_fonts,
+        )
+        self.secondary_y_log_var = tk.StringVar(value=AXIS_TYPES[0])
+        option_row(
+            self.secondary_y_frame,
+            ('Y axis type', self.secondary_y_log_var, ('Linear', 'Log'), self._update_secondary_y_log),
+            (None, None, (), None),
+        )
+
+        ttk.Label(
+            self.secondary_y_frame,
+            text='Assign to secondary axis',
+            font=('Segoe UI', 8),
+        ).pack(anchor=tk.W, pady=(8, 0))
+        self.secondary_y_assignment_frame = ttk.Frame(self.secondary_y_frame)
+        self.secondary_y_assignment_frame.pack(fill=tk.X)
+        self.secondary_y_assign_vars = {}
+        self._sync_secondary_y_assignments()
+
+    def _toggle_secondary_y_axis(self) -> None:
+        """Expand or collapse the secondary-axis settings section."""
+        self.secondary_y_expanded = not self.secondary_y_expanded
+        if self.secondary_y_expanded:
+            self.secondary_y_frame.pack(fill=tk.X, pady=(4, 0))
+            self.secondary_y_toggle_button.configure(text='Secondary Y axis  -')
+            bind_wheel(self.secondary_y_frame, self._on_body_wheel)
+        else:
+            self.secondary_y_frame.pack_forget()
+            self.secondary_y_toggle_button.configure(text='Secondary Y axis  +')
+        self.secondary_y_frame.update_idletasks()
+        self._body_inner.update_idletasks()
+        self._body_canvas.configure(scrollregion=self._body_canvas.bbox('all'))
+
+    def _sync_secondary_y_axis_availability(self) -> None:
+        """Disable secondary-axis activation for horizontal bar layouts."""
+        supported = self.state.config.chart == 'scatter' or (
+            self.state.config.chart == 'bar' and self.state.config.orientation == 'vertical'
+        )
+        pending: list[tk.Misc] = [self.secondary_y_frame]
+        while pending:
+            widget = pending.pop()
+            if isinstance(widget, (ttk.Checkbutton, ttk.Entry, ttk.Combobox)):
+                widget.configure(state='normal' if supported else 'disabled')
+            pending.extend(widget.winfo_children())
+
+    def _sync_secondary_y_assignments(self) -> None:
+        """Rebuild the available bar samples or scatter series for axis assignment."""
+        if not hasattr(self, 'secondary_y_assignment_frame'):
+            return
+        for child in self.secondary_y_assignment_frame.winfo_children():
+            child.destroy()
+
+        config = self.state.config
+        if config.chart == 'scatter':
+            names = [one.name for one in self.state.dataset.ordered_series(config.series_order)]
+            assigned = set(config.secondary_y_axis_series)
+        else:
+            names = [sample.name for sample in self.state.samples]
+            assigned = set(config.secondary_y_axis_samples)
+
+        self.secondary_y_assign_vars = {}
+        if not names:
+            ttk.Label(self.secondary_y_assignment_frame, text='No data available.').pack(anchor=tk.W)
+            return
+        for name in names:
+            variable = tk.BooleanVar(value=name in assigned)
+            self.secondary_y_assign_vars[name] = variable
+            ttk.Checkbutton(
+                self.secondary_y_assignment_frame,
+                text=name,
+                variable=variable,
+                command=partial(self._update_secondary_y_assignment, name, variable),
+            ).pack(anchor=tk.W)
+        bind_wheel(self.secondary_y_assignment_frame, self._on_body_wheel)
+
+    def _update_secondary_y_assignment(self, name: str, variable: tk.BooleanVar) -> None:
+        """Assign or remove one sample/series from the secondary value axis."""
+        if self.syncing:
+            return
+        config = self.state.config
+        assigned = list(
+            config.secondary_y_axis_series if config.chart == 'scatter' else config.secondary_y_axis_samples
+        )
+        if variable.get() and name not in assigned:
+            assigned.append(name)
+        elif not variable.get() and name in assigned:
+            assigned.remove(name)
+        if config.chart == 'scatter':
+            config.secondary_y_axis_series = tuple(assigned)
+        else:
+            config.secondary_y_axis_samples = tuple(assigned)
+        self.redraw()
+
+    def _update_secondary_y_enabled(self) -> None:
+        """Enable or disable the secondary value axis."""
+        if self.syncing:
+            return
+        self.state.config.secondary_y_axis_enabled = bool(self.secondary_y_enabled_var.get())
+        self.redraw()
+
+    def _update_secondary_y_title(self, _event: object = None) -> None:
+        """Apply the secondary value-axis title, using the sheet title when unchanged."""
+        if self.syncing:
+            return
+        text = self.secondary_y_title_var.get().strip()
+        self.state.config.secondary_y_label = (
+            None if text == self.state.dataset.y_label else text or None
+        )
+        self.redraw()
+
+    def _secondary_automatic_step(self) -> float | None:
+        """Return the automatic tick spacing currently drawn on the secondary axis."""
+        axes = self.canvas.figure.axes
+        if len(axes) < 2:
+            return None
+        low, high = axes[1].get_ylim()
+        ticks = AutoLocator().tick_values(low, high)
+        return max(ticks) if len(ticks) else None
+
+    def _update_secondary_y_range(self, _event: object = None) -> None:
+        """Apply a manual secondary-axis top and tick spacing, or restore automatic values."""
+        if self.syncing:
+            return
+        self.state.config.secondary_y_max = chosen_value(
+            self.secondary_y_max_var.get(),
+            self.state.automatic_secondary_y_max(),
+        )
+        self.state.config.secondary_y_major_step = chosen_value(
+            self.secondary_y_step_var.get(),
+            self._secondary_automatic_step(),
+        )
+        self.redraw()
+
+    def _update_secondary_y_log(self, _event: object = None) -> None:
+        """Apply the secondary value-axis scale."""
+        if self.syncing:
+            return
+        self.state.config.secondary_log_axis = self.secondary_y_log_var.get() == 'Log'
+        self.redraw()
 
     def _build_x_axis(self, box: tk.Widget) -> None:
         """Create the block of settings that describe the x axis.
@@ -552,8 +759,13 @@ class AxisTabMixin(_AppBase):
         # Prism default, so an untouched axis keeps following the shared size.
         self.state.config.x_font_size = chosen_size(self.x_tick_font_var.get(), DEFAULT_TICK_FONT)
         self.state.config.y_font_size = chosen_size(self.y_tick_font_var.get(), DEFAULT_TICK_FONT)
+        self.state.config.secondary_y_font_size = chosen_size(
+            self.secondary_y_tick_font_var.get(),
+            DEFAULT_TICK_FONT,
+        )
         self.state.config.legend_size = chosen_size(self.legend_font_var.get(), DEFAULT_LEGEND_FONT)
         self.state.config.y_label_size = optional_size(self.y_label_size_var.get())
+        self.state.config.secondary_y_label_size = optional_size(self.secondary_y_label_size_var.get())
         self.state.config.title_size = optional_size(self.title_size_var.get())
         self.redraw()
 

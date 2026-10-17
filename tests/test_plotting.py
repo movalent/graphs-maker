@@ -30,6 +30,7 @@ from src.graphpad_style import (
 )
 from src.models import (
     DEFAULT_POINT_TYPE,
+    LOG_HEADROOM,
     ORIENTATIONS,
     POINT_MARKERS,
     POINT_TYPES,
@@ -1216,6 +1217,84 @@ def test_points_can_be_hidden(simple_dataset: Dataset) -> None:
 def test_log_axis_is_applied(simple_dataset: Dataset) -> None:
     figure = plot_dataset(simple_dataset, PlotConfig(log_axis=True))
     assert axes_of(figure).get_yscale() == 'log'
+
+
+def test_secondary_y_axis_is_off_by_default(simple_dataset: Dataset) -> None:
+    assert len(plot_dataset(simple_dataset).axes) == 1
+
+
+def test_vertical_bars_route_selected_samples_to_secondary_axis(simple_dataset: Dataset) -> None:
+    figure = plot_dataset(
+        simple_dataset,
+        PlotConfig(
+            secondary_y_axis_enabled=True,
+            secondary_y_axis_samples=('Other',),
+            secondary_y_label='Concentration',
+            secondary_y_max=50.0,
+            secondary_y_major_step=10.0,
+            secondary_y_font_size=11,
+            secondary_y_label_size=14,
+            axis_line_width=2.0,
+        ),
+    )
+    primary, secondary = figure.axes
+
+    assert len(primary.patches) == 2
+    assert len(secondary.patches) == 1
+    assert primary.get_ylabel() == 'Value'
+    assert secondary.get_ylabel() == 'Concentration'
+    assert primary.get_ylim() == pytest.approx((0.0, 25.3))
+    assert secondary.get_ylim() == (0.0, 50.0)
+    assert secondary.get_yscale() == 'linear'
+    assert secondary.spines['right'].get_visible()
+    assert secondary.spines['right'].get_linewidth() == 2.0
+    assert secondary.get_position().bounds == primary.get_position().bounds
+    assert secondary.yaxis.label.get_fontsize() == 14
+    assert secondary.yaxis.get_ticklabels()[0].get_fontsize() == 11
+    assert [tick for tick in secondary.get_yticks() if 0 <= tick <= 50] == pytest.approx(
+        [0, 10, 20, 30, 40, 50]
+    )
+
+
+def test_scatter_series_can_use_an_independent_log_axis(scatter_dataset: Dataset) -> None:
+    figure = plot_dataset(
+        scatter_dataset,
+        PlotConfig(
+            chart='scatter',
+            secondary_y_axis_enabled=True,
+            secondary_y_axis_series=('S2',),
+            secondary_y_label='Secondary response',
+            secondary_y_max=20.0,
+            secondary_log_axis=True,
+            secondary_y_major_step=5.0,
+        ),
+    )
+    primary, secondary = figure.axes
+
+    assert len(primary.lines) == 1
+    assert len(secondary.lines) == 1
+    assert list(primary.lines[0].get_ydata()) == [10.0, 12.0, 15.0]
+    assert list(secondary.lines[0].get_ydata()) == [5.0, 6.5]
+    assert primary.get_ylabel() == 'Response'
+    assert secondary.get_ylabel() == 'Secondary response'
+    assert primary.get_yscale() == 'linear'
+    assert secondary.get_yscale() == 'log'
+    assert secondary.get_ylim() == pytest.approx((5.0 / LOG_HEADROOM, 20.0))
+    assert secondary.spines['right'].get_visible()
+
+
+def test_secondary_y_axis_is_not_used_for_horizontal_bars(simple_dataset: Dataset) -> None:
+    figure = plot_dataset(
+        simple_dataset,
+        PlotConfig(
+            orientation='horizontal',
+            secondary_y_axis_enabled=True,
+            secondary_y_axis_samples=('Other',),
+        ),
+    )
+
+    assert len(figure.axes) == 1
+    assert len(axes_of(figure).patches) == len(simple_dataset.samples)
 
 
 def test_linear_axis_starts_at_zero(simple_dataset: Dataset) -> None:

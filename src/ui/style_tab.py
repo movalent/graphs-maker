@@ -811,6 +811,7 @@ class StyleTabMixin(_AppBase):
         self.state.config.orientation = label_to(
             ORIENTATIONS, ORIENTATION_LABELS, self.orientation_var.get(), DEFAULT_ORIENTATION
         )
+        self._sync_secondary_y_axis_availability()
         self.redraw()
     def _update_error(self, _event: object = None) -> None:
         """Apply the chosen error bar statistic."""

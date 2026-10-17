@@ -377,6 +377,51 @@ def _finish_value_axis(ax: Axes, dataset: Dataset, config: PlotConfig, horizonta
     _apply_axis_line_width(ax, config)
 
 
+def _secondary_axis_config(config: PlotConfig) -> PlotConfig:
+    """Return the primary-axis view of the independently stored secondary settings."""
+    return replace(
+        config,
+        log_axis=config.secondary_log_axis,
+        y_label=config.secondary_y_label,
+        y_max=config.secondary_y_max,
+        y_min=config.secondary_y_min,
+        y_major_step=config.secondary_y_major_step,
+        y_label_size=config.secondary_y_label_size,
+        y_font_size=config.secondary_y_font_size,
+    )
+
+
+def _secondary_y_axis(ax: Axes, config: PlotConfig) -> Axes | None:
+    """Create and style a right-side value axis when it is enabled for this layout."""
+    if not config.secondary_y_axis_enabled or (config.chart == 'bar' and config.orientation != 'vertical'):
+        return None
+    secondary = ax.twinx()
+    secondary.patch.set_visible(False)
+    secondary.spines['left'].set_visible(False)
+    secondary.spines['right'].set_visible(True)
+    secondary.yaxis.set_label_position('right')
+    secondary.yaxis.tick_right()
+    return secondary
+
+
+def _apply_scatter_value_axis(ax: Axes, series: Sequence[XYSeries], dataset: Dataset, config: PlotConfig) -> None:
+    """Apply the scatter values, scale, ticks and label to one value axis."""
+    points = [point.y for one in series for point in one.points]
+    if config.log_axis:
+        positive = [value for value in points if value > 0]
+        if positive:
+            ax.set_yscale('log')
+            ax.set_ylim(
+                config.y_min if config.y_min is not None else min(positive) / LOG_HEADROOM,
+                config.y_max if config.y_max is not None else max(positive) * LOG_HEADROOM,
+            )
+    elif config.y_max is not None and points:
+        ax.set_ylim(config.y_min if config.y_min is not None else min(points), config.y_max)
+    if config.y_major_step:
+        ax.yaxis.set_major_locator(MultipleLocator(config.y_major_step))
+    _finish_value_axis(ax, dataset, config, horizontal=False)
+
+
 def _apply_axis_line_width(ax: Axes, config: PlotConfig) -> None:
     """Draw the axis lines and the value axis tick marks at the requested thickness.
 
@@ -384,9 +429,8 @@ def _apply_axis_line_width(ax: Axes, config: PlotConfig) -> None:
     together. Changing the line while leaving the ticks thin looks like a mistake rather
     than a choice.
 
-    Only the left and bottom spines are touched. The top and right ones are switched off in
-    the style, and the secondary x axis that carries the sample names has its own spine,
-    which is hidden because the primary one already draws that line.
+    Visible spines are given the shared line width, including the right spine on a secondary
+    value axis. Hidden spines, such as the primary right spine, remain hidden.
 
     Args:
         ax: The axes to restyle.
@@ -396,8 +440,10 @@ def _apply_axis_line_width(ax: Axes, config: PlotConfig) -> None:
     width = config.axis_line_width
     if width is None:
         return
-    for spine in (ax.spines['left'], ax.spines['bottom']):
-        spine.set_linewidth(width)
+    spines = (ax.spines['left'], ax.spines['bottom'], ax.spines['right'])
+    for spine in spines:
+        if spine.get_visible():
+            spine.set_linewidth(width)
     ax.tick_params(axis='y', which='major', width=width)
 
 
@@ -1086,7 +1132,8 @@ def plot_dataset(dataset: Dataset, config: PlotConfig | None = None) -> Figure:
     A bar graph summarises a column of replicates: bars are grouped by ``Sample.group`` and
     sub spaced by condition, each bar carries a mean with error bars, and every replicate is
     drawn on top as an open circle. A scatter plot instead draws the paired x and y values
-    read from the sheet, one point per row.
+    read from the sheet, one point per row. Either kind can assign chosen data to an optional
+    right-side value axis when the graph's values run vertically.
 
     Args:
         dataset: The parsed experiment.
@@ -1104,6 +1151,9 @@ def plot_dataset(dataset: Dataset, config: PlotConfig | None = None) -> Figure:
 
 def plot_bars(dataset: Dataset, config: PlotConfig | None = None) -> Figure:
     """Draw a grouped bar graph with individual replicate points, Prism style.
+
+    In a vertical graph, samples assigned to an enabled secondary axis use the right-hand
+    value scale while retaining their category positions.
 
     Args:
         dataset: The parsed experiment.
@@ -1126,67 +1176,83 @@ def plot_bars(dataset: Dataset, config: PlotConfig | None = None) -> Figure:
     layout = compute_layout(grouped, groups, settings.grouped_layout)
     colors = _colors(grouped, groups, settings)
     horizontal = settings.orientation in ('horizontal', 'inverted')
+    secondary_ax = _secondary_y_axis(ax, settings)
+    secondary_names = set(settings.secondary_y_axis_samples) if secondary_ax is not None else set()
+    primary_indices = [index for index, sample in enumerate(samples) if sample.name not in secondary_names]
+    secondary_indices = [index for index, sample in enumerate(samples) if sample.name in secondary_names]
 
     means = [sample.mean for sample in samples]
     bar_width = settings.bar_line_width or DEFAULT_LINE_WIDTH
     edges = [settings.edge_colors.get(sample.name, BAR_EDGE) for sample in samples]
     hatches = [settings.hatches.get(sample.name, '') for sample in samples]
-    if horizontal:
-        bars = ax.barh(
-            list(layout.centers),
-            means,
-            height=layout.width,
-            color=colors,
-            edgecolor=edges,
-            hatch=hatches,
-            linewidth=bar_width,
-            align='center',
-            zorder=2,
-        )
-    else:
-        bars = ax.bar(
-            list(layout.centers),
-            means,
-            width=layout.width,
-            color=colors,
-            edgecolor=edges,
-            hatch=hatches,
-            linewidth=bar_width,
-            align='center',
-            zorder=2,
-        )
-    tag_bars(fig, bars, [sample.name for sample in samples])
-
     errors = [sample.error(settings.error_kind) for sample in samples]
-    # The error bars are drawn along whichever axis the values run down, so the caps stay
-    # square to the bars rather than being laid on their side.
-    if horizontal:
-        ax.errorbar(
-            means,
-            list(layout.centers),
-            xerr=errors,
-            fmt='none',
-            ecolor=ERROR_COLOR,
-            elinewidth=bar_width,
-            capsize=3.0,
-            capthick=bar_width,
-            zorder=4,
-        )
-    else:
-        ax.errorbar(
-            list(layout.centers),
-            means,
-            yerr=errors,
-            fmt='none',
-            ecolor=ERROR_COLOR,
-            elinewidth=bar_width,
-            capsize=3.0,
-            capthick=bar_width,
-            zorder=4,
-        )
+    primary_samples = tuple(samples[index] for index in primary_indices)
+    secondary_samples = tuple(samples[index] for index in secondary_indices)
+    for target_ax, indices in ((ax, primary_indices), (secondary_ax, secondary_indices)):
+        if target_ax is None or not indices:
+            continue
+        target_means = [means[index] for index in indices]
+        target_centers = [layout.centers[index] for index in indices]
+        target_errors = [errors[index] for index in indices]
+        target_samples = [samples[index] for index in indices]
+        target_colors = [colors[index] for index in indices]
+        target_edges = [edges[index] for index in indices]
+        target_hatches = [hatches[index] for index in indices]
+        if horizontal:
+            bars = target_ax.barh(
+                target_centers,
+                target_means,
+                height=layout.width,
+                color=target_colors,
+                edgecolor=target_edges,
+                hatch=target_hatches,
+                linewidth=bar_width,
+                align='center',
+                zorder=2,
+            )
+        else:
+            bars = target_ax.bar(
+                target_centers,
+                target_means,
+                width=layout.width,
+                color=target_colors,
+                edgecolor=target_edges,
+                hatch=target_hatches,
+                linewidth=bar_width,
+                align='center',
+                zorder=2,
+            )
+        tag_bars(fig, bars, [sample.name for sample in target_samples])
 
-    if settings.show_points:
-        for center, sample, color in zip(layout.centers, samples, colors, strict=True):
+        # Error bars follow each subset onto the axis its values are measured against.
+        if horizontal:
+            target_ax.errorbar(
+                target_means,
+                target_centers,
+                xerr=target_errors,
+                fmt='none',
+                ecolor=ERROR_COLOR,
+                elinewidth=bar_width,
+                capsize=3.0,
+                capthick=bar_width,
+                zorder=4,
+            )
+        else:
+            target_ax.errorbar(
+                target_centers,
+                target_means,
+                yerr=target_errors,
+                fmt='none',
+                ecolor=ERROR_COLOR,
+                elinewidth=bar_width,
+                capsize=3.0,
+                capthick=bar_width,
+                zorder=4,
+            )
+
+        if not settings.show_points:
+            continue
+        for center, sample, color in zip(target_centers, target_samples, target_colors, strict=True):
             offsets = [
                 center + _jitter_offset(index, sample.n, settings.jitter) * layout.width for index in range(sample.n)
             ]
@@ -1195,7 +1261,7 @@ def plot_bars(dataset: Dataset, config: PlotConfig | None = None) -> Figure:
             # two would plot the values along the bar axis and stretch the graph to fit them.
             along, across = (list(sample.values), offsets) if horizontal else (offsets, list(sample.values))
             marker, fill = _point_marks(settings, sample.name, color)
-            points = ax.plot(
+            points = target_ax.plot(
                 along,
                 across,
                 linestyle='none',
@@ -1213,7 +1279,14 @@ def plot_bars(dataset: Dataset, config: PlotConfig | None = None) -> Figure:
             # a click on a point selects the same sample as a click on the bar beneath it.
             tag_artists(fig, points, [sample.name])
 
-    _apply_value_axis(ax, samples, dataset, settings, horizontal)
+    _apply_value_axis(ax, primary_samples, dataset, settings, horizontal)
+    if secondary_ax is not None:
+        _apply_value_axis(
+            secondary_ax,
+            secondary_samples,
+            dataset,
+            _secondary_axis_config(settings),
+        )
     # The sample names are the x axis labels of a bar graph, so they follow the x axis text
     # size. A horizontal graph lays them down the side, which is still the x axis turned on
     # its side, so the same size applies either way round.
@@ -1273,7 +1346,8 @@ def plot_scatter(dataset: Dataset, config: PlotConfig | None = None) -> Figure:
 
     One series is drawn per y column, each in its own palette colour and each named in the
     legend, which is the way a bar graph names its samples. A click on a point selects the
-    series it belongs to, because every point carries its series name.
+    series it belongs to, because every point carries its series name. Chosen series may use
+    the optional right-side value axis.
 
     A scatter plot has no bars, so it has no mean, no error bars and no zero baseline: the
     axis is framed around the points instead, because a point has no length that a baseline
@@ -1295,6 +1369,10 @@ def plot_scatter(dataset: Dataset, config: PlotConfig | None = None) -> Figure:
     apply_graphpad_style()
     fig = new_figure()
     ax: Axes = fig.add_subplot()
+    secondary_ax = _secondary_y_axis(ax, settings)
+    secondary_names = set(settings.secondary_y_axis_series) if secondary_ax is not None else set()
+    primary_series = tuple(one for one in series if one.name not in secondary_names)
+    secondary_series = tuple(one for one in series if one.name in secondary_names)
     names = [one.name for one in series]
     colors = _series_colors(names, settings)
     size = settings.point_size or DEFAULT_POINT_SIZE
@@ -1302,8 +1380,9 @@ def plot_scatter(dataset: Dataset, config: PlotConfig | None = None) -> Figure:
 
     connected = _connected_series(names, settings)
     for one, color in zip(series, colors, strict=True):
+        target_ax = secondary_ax if one.name in secondary_names and secondary_ax is not None else ax
         marker, fill = _point_marks(settings, one.name, color)
-        line = ax.plot(
+        line = target_ax.plot(
             [point.x for point in one.points],
             [point.y for point in one.points],
             linestyle='-' if one.name in connected else 'none',
@@ -1322,22 +1401,14 @@ def plot_scatter(dataset: Dataset, config: PlotConfig | None = None) -> Figure:
         # it belongs to in the same way a click on a bar selects its sample.
         tag_artists(fig, line, [one.name])
 
-    if settings.log_axis:
-        positive = [point.y for one in series for point in one.points if point.y > 0]
-        if positive:
-            ax.set_yscale('log')
-            ax.set_ylim(
-                settings.y_min if settings.y_min is not None else min(positive) / LOG_HEADROOM,
-                settings.y_max if settings.y_max is not None else max(positive) * LOG_HEADROOM,
-            )
-    elif settings.y_max is not None:
-        # The log branch above sets the limits, so this is the linear case that was left
-        # with no way to set a top. A typed Y max that silently does nothing reads as a
-        # broken control rather than as a value the graph ignored.
-        points = [point.y for one in series for point in one.points]
-        ax.set_ylim(settings.y_min if settings.y_min is not None else min(points), settings.y_max)
-    if config_y_step := settings.y_major_step:
-        ax.yaxis.set_major_locator(MultipleLocator(config_y_step))
+    _apply_scatter_value_axis(ax, primary_series, dataset, settings)
+    if secondary_ax is not None:
+        _apply_scatter_value_axis(
+            secondary_ax,
+            secondary_series,
+            dataset,
+            _secondary_axis_config(settings),
+        )
     # The x axis is the scatter plot's own to frame, and it carries the same two controls
     # the value axis does. The lower end is left to matplotlib, which pads the points
     # sensibly; only the top and the tick spacing are the user's to set.
@@ -1345,7 +1416,6 @@ def plot_scatter(dataset: Dataset, config: PlotConfig | None = None) -> Figure:
         ax.set_xlim(left=ax.get_xlim()[0], right=settings.x_max)
     if settings.x_major_step:
         ax.xaxis.set_major_locator(MultipleLocator(settings.x_major_step))
-    _finish_value_axis(ax, dataset, settings, horizontal=False)
     # The x label is written after the shared axis finishing, because that helper clears the
     # x label for a bar graph, where the samples are named along that axis instead.
     ax.set_xlabel(settings.x_label_override or dataset.x_label)
@@ -1361,7 +1431,9 @@ def plot_scatter(dataset: Dataset, config: PlotConfig | None = None) -> Figure:
             position=settings.legend_position,
             legend_font=settings.legend_font,
         )
-    labelled = _add_series_labels(ax, series, colors, settings) if settings.point_labels else []
+    labelled = _add_series_labels(ax, primary_series, colors, settings) if settings.point_labels else []
+    if settings.point_labels and secondary_ax is not None:
+        labelled.extend(_add_series_labels(secondary_ax, secondary_series, colors, settings))
     rows = legend_rows(len(names), settings)
     fig.subplots_adjust(
         bottom=BOTTOM_MARGIN,

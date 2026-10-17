@@ -374,6 +374,16 @@ class PlotConfig:
         y_max: Upper limit of the value axis, or ``None`` to choose it from the data.
         y_min: Lower limit of the value axis, or ``None`` for the usual zero baseline.
         y_major_step: Spacing of the value axis major ticks, or ``None`` for automatic.
+        secondary_y_axis_enabled: Whether to show a right-side value axis.
+        secondary_y_axis_samples: Bar samples assigned to the right-side axis.
+        secondary_y_axis_series: Scatter series assigned to the right-side axis.
+        secondary_y_label: Replacement text for the secondary value axis label.
+        secondary_y_max: Upper limit of the secondary value axis, or ``None`` for automatic.
+        secondary_y_min: Lower limit of the secondary value axis, or ``None`` for automatic.
+        secondary_y_major_step: Spacing of the secondary value axis major ticks.
+        secondary_log_axis: Whether the secondary value axis uses a logarithmic scale.
+        secondary_y_label_size: Size of the secondary value axis title.
+        secondary_y_font_size: Size of the secondary value axis tick labels.
         font_size: Size of both axes' tick labels, or ``None`` for the Prism default. This
             is the fallback each axis falls back on when it has no size of its own.
         x_font_size: Size of the x axis tick labels, or ``None`` to follow ``font_size``.
@@ -438,6 +448,16 @@ class PlotConfig:
     group_overrides: dict[str, str] = field(default_factory=dict)
     sample_order: tuple[str, ...] = ()
     log_axis: bool = False
+    secondary_y_axis_enabled: bool = False
+    secondary_y_axis_samples: tuple[str, ...] = ()
+    secondary_y_axis_series: tuple[str, ...] = ()
+    secondary_y_label: str | None = None
+    secondary_y_max: float | None = None
+    secondary_y_min: float | None = None
+    secondary_y_major_step: float | None = None
+    secondary_log_axis: bool = False
+    secondary_y_label_size: int | None = None
+    secondary_y_font_size: int | None = None
     title: str | None = None
     title_position: TitlePosition = DEFAULT_TITLE_POSITION
     title_font: str | None = None

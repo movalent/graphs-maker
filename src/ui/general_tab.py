@@ -257,6 +257,8 @@ class GeneralTabMixin(_AppBase):
         # named after samples, or still empty, and a click on the graph has nothing to
         # highlight.
         self._refresh_list()
+        self._sync_secondary_y_assignments()
+        self._sync_secondary_y_axis_availability()
         self._refresh_groups()
         self._on_row_selected(_SYNTHETIC_EVENT)
         self.redraw()
@@ -336,4 +338,3 @@ class GeneralTabMixin(_AppBase):
         self.state.config.connect_points = self.connect_var.get()
         self._show_selected_style()
         self.redraw()
-

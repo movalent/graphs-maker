@@ -618,7 +618,16 @@ class AppState:
             The tallest mean plus headroom, or ``1.0`` for an empty dataset.
 
         """
+        secondary: set[str] = set()
+        if self.config.secondary_y_axis_enabled:
+            secondary = (
+                set(self.config.secondary_y_axis_samples)
+                if self.config.chart == 'bar'
+                else set(self.config.secondary_y_axis_series)
+            )
         samples = self.samples
+        if self.config.chart == 'bar' and self.config.orientation == 'vertical' and secondary:
+            samples = tuple(sample for sample in samples if sample.name not in secondary)
         if self.config.log_axis:
             positive = [value for sample in samples for value in sample.values if value > 0]
             return max(positive) * LOG_HEADROOM if positive else 1.0
@@ -627,12 +636,36 @@ class AppState:
         # A scatter plot holds no samples at all, so the top has to come from its points.
         # Reading it off the tallest sample would show 1.15 in the field, because there are
         # none, and typing a value would then be compared against that meaningless number.
-        points = [point.y for series in self.dataset.series for point in series.points]
+        points = [
+            point.y
+            for series in self.dataset.series
+            if self.config.chart != 'scatter' or series.name not in secondary
+            for point in series.points
+        ]
         if not points:
             # Nothing has been read at all, which is the case the fallback is there for.
             return 1.0 * Y_MAX_HEADROOM
         tallest = max(points)
         return tallest * LOG_HEADROOM if self.config.log_axis else tallest * Y_MAX_HEADROOM
+
+    def automatic_secondary_y_max(self) -> float:
+        """Return the automatic upper bound for values assigned to the secondary axis."""
+        names = set(self.config.secondary_y_axis_series)
+        if self.config.chart == 'bar':
+            names = set(self.config.secondary_y_axis_samples)
+            samples = tuple(sample for sample in self.samples if sample.name in names)
+            values = [value for sample in samples for value in sample.values]
+            means = [sample.mean for sample in samples]
+            if self.config.secondary_log_axis:
+                positive = [value for value in values if value > 0]
+                return max(positive) * LOG_HEADROOM if positive else 1.0
+            return max(means, default=1.0) * Y_MAX_HEADROOM
+
+        points = [point.y for series in self.dataset.series if series.name in names for point in series.points]
+        if self.config.secondary_log_axis:
+            positive = [value for value in points if value > 0]
+            return max(positive) * LOG_HEADROOM if positive else 1.0
+        return max(points, default=1.0) * Y_MAX_HEADROOM
 
     def groups(self) -> tuple[str, ...]:
         """Return the groups in drawing order, after applying any overrides.
@@ -821,6 +854,16 @@ class AppState:
         self.set_columns(None)
         self.config.group_overrides.clear()
         self.config.log_axis = False
+        self.config.secondary_y_axis_enabled = False
+        self.config.secondary_y_axis_samples = ()
+        self.config.secondary_y_axis_series = ()
+        self.config.secondary_y_label = None
+        self.config.secondary_y_max = None
+        self.config.secondary_y_min = None
+        self.config.secondary_y_major_step = None
+        self.config.secondary_log_axis = False
+        self.config.secondary_y_label_size = None
+        self.config.secondary_y_font_size = None
         self.config.title = None
         self.config.title_position = DEFAULT_TITLE_POSITION
         self.config.title_font = None
