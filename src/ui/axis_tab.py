@@ -216,7 +216,7 @@ class AxisTabMixin(_AppBase):
         self._body_canvas.configure(scrollregion=self._body_canvas.bbox('all'))
 
     def _sync_secondary_y_axis_availability(self) -> None:
-        """Disable secondary-axis activation for horizontal bar layouts."""
+        """Disable secondary axes for layouts the renderer cannot split."""
         supported = self.state.config.chart == 'scatter' or (
             self.state.config.chart == 'bar' and self.state.config.orientation == 'vertical'
         )

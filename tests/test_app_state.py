@@ -391,6 +391,12 @@ def test_automatic_y_max_leaves_headroom_above_the_tallest_mean(state: AppState)
     assert state.automatic_y_max() == pytest.approx(tallest * Y_MAX_HEADROOM)
 
 
+def test_distribution_axis_max_uses_all_observations(state: AppState) -> None:
+    state.config.chart = 'box_violin'
+
+    assert state.automatic_y_max() > max(value for sample in state.samples for value in sample.values)
+
+
 def test_automatic_y_max_uses_only_samples_staying_on_the_primary_axis(state: AppState) -> None:
     state.config.secondary_y_axis_enabled = True
     state.config.secondary_y_axis_samples = ('Third',)

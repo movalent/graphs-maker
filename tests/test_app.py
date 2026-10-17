@@ -790,14 +790,14 @@ def test_the_axis_thickness_lives_on_the_axis_tab(app: GraphPadApp) -> None:
 
 
 def test_the_bar_thickness_lives_on_the_plot_style_tab(app: GraphPadApp) -> None:
-    assert 'Bar outline width' in _captions_in(_tab_frame(app, 2))
-    assert 'Bar outline width' not in _captions_in(_tab_frame(app, 1))
+    assert 'Outline width' in _captions_in(_tab_frame(app, 2))
+    assert 'Outline width' not in _captions_in(_tab_frame(app, 1))
 
 
 def test_the_grouped_layout_lives_on_the_plot_style_tab(app: GraphPadApp) -> None:
     """It is a statement about the drawing, so it moved off the Groups tab."""
-    assert 'Group bars (Prism)' in _captions_in(_tab_frame(app, 2))
-    assert 'Group bars (Prism)' not in _captions_in(_tab_frame(app, 3))
+    assert 'Group samples (Prism)' in _captions_in(_tab_frame(app, 2))
+    assert 'Group samples (Prism)' not in _captions_in(_tab_frame(app, 3))
 
 
 def _comboboxes_in(widget: tk.Misc) -> list[ttk.Combobox]:
@@ -899,13 +899,13 @@ def test_choosing_a_horizontal_orientation_moves_the_bars(app: GraphPadApp) -> N
     """Values have to run across the graph, not up it, for the choice to mean anything."""
     from matplotlib.colors import to_hex
 
-    app.orientation_var.set('Horizontal bars')
+    app.orientation_var.set('Horizontal')
     app._update_orientation()
     ax = app.canvas.figure.axes[0]
     horizontal = to_hex(ax.patches[0].get_facecolor())
     assert app.state.config.orientation == 'horizontal'
     assert ax.get_ylabel() == ''
-    app.orientation_var.set('Vertical bars')
+    app.orientation_var.set('Vertical')
     app._update_orientation()
     assert app.state.config.orientation == 'vertical'
     assert to_hex(app.canvas.figure.axes[0].patches[0].get_facecolor()) == horizontal
@@ -924,6 +924,24 @@ def test_the_scatter_controls_appear_only_for_a_scatter_plot(app: GraphPadApp) -
     app.root.update()
     assert app.state.config.chart == 'bar'
     assert not app.xy_frame.winfo_manager()
+
+
+def test_box_and_violin_can_be_selected_together_in_the_window(app: GraphPadApp) -> None:
+    app.chart_var.set('Box + violin')
+    app._update_chart()
+    app.hex_var.set('#336699')
+    app._apply_hex()
+    app.edge_var.set('#cc3300')
+    app._apply_edge()
+
+    assert app.state.config.chart == 'box_violin'
+    assert not app.xy_frame.winfo_manager()
+    assert len(app.canvas.figure.axes[0].patches) == len(app.state.samples)
+    assert len(app.canvas.figure.axes[0].collections) == len(app.state.samples)
+    assert to_hex(app.canvas.figure.axes[0].patches[0].get_facecolor()) == '#336699'
+    assert to_hex(app.canvas.figure.axes[0].patches[0].get_edgecolor()) == '#cc3300'
+    assert to_hex(app.canvas.figure.axes[0].collections[0].get_facecolor()[0]) == '#336699'
+    assert to_hex(app.canvas.figure.axes[0].collections[0].get_edgecolor()[0]) == '#cc3300'
 
 
 def test_curve_fit_controls_update_and_sync_scatter_settings(app: GraphPadApp) -> None:
@@ -1585,11 +1603,11 @@ def test_each_setting_sits_on_the_tab_it_belongs_to(app: GraphPadApp) -> None:
         'Replicate spread',
         'Graph orientation',
         'Error bars',
-        'Bar outline width',
-        'Bar hatch',
+        'Outline width',
+        'Fill hatch',
         'Colour palette',
         'Colour by',
-        'Group bars (Prism)',
+        'Group samples (Prism)',
     } <= style
     assert {'Outline', 'Hatch', 'Clear style'} <= style
     # The graph-wide point shape is always available, while the selected-entry shape is
@@ -2685,6 +2703,13 @@ def test_input_argument_is_optional() -> None:
 
     assert build_parser().parse_args([]).input is None
     assert build_parser().parse_args(['--input', 'a.xlsx']).input == Path('a.xlsx')
+
+
+def test_cli_accepts_the_combined_box_and_violin_chart() -> None:
+    from src.cli import build_parser
+
+    args = build_parser().parse_args(['--input', 'a.xlsx', '--chart', 'box_violin'])
+    assert args.chart == 'box_violin'
 
 
 @pytest.fixture

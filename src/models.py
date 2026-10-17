@@ -19,15 +19,22 @@ ColorBy = Literal['sample', 'group']
 Orientation = Literal['vertical', 'horizontal', 'inverted']
 ORIENTATIONS: tuple[Orientation, ...] = ('vertical', 'horizontal', 'inverted')
 ORIENTATION_LABELS: dict[Orientation, str] = {
-    'vertical': 'Vertical bars',
-    'horizontal': 'Horizontal bars',
+    'vertical': 'Vertical',
+    'horizontal': 'Horizontal',
     'inverted': 'Inverted (values across)',
 }
-# Which sort of graph is drawn. A bar graph summarises a column of replicates; a scatter
-# graph plots paired x and y values, one point per row of the sheet.
-ChartKind = Literal['bar', 'scatter']
-CHART_KINDS: tuple[ChartKind, ...] = ('bar', 'scatter')
-CHART_LABELS: dict[ChartKind, str] = {'bar': 'Bar graph', 'scatter': 'Scatter plot'}
+# Which sort of graph is drawn. Bar, box and violin graphs summarise each sample's replicates;
+# a scatter graph plots paired x and y values, one point per row of the sheet.
+ChartKind = Literal['bar', 'scatter', 'box', 'violin', 'box_violin']
+CHART_KINDS: tuple[ChartKind, ...] = ('bar', 'scatter', 'box', 'violin', 'box_violin')
+CHART_LABELS: dict[ChartKind, str] = {
+    'bar': 'Bar graph',
+    'scatter': 'Scatter plot',
+    'box': 'Box plot',
+    'violin': 'Violin plot',
+    'box_violin': 'Box + violin',
+}
+SAMPLE_CHARTS: tuple[ChartKind, ...] = ('bar', 'box', 'violin', 'box_violin')
 CurveFitModel = Literal['linear', 'polynomial']
 CURVE_FIT_MODELS: tuple[CurveFitModel, ...] = ('linear', 'polynomial')
 CURVE_FIT_MODEL_LABELS: dict[CurveFitModel, str] = {'linear': 'Linear', 'polynomial': 'Polynomial'}
@@ -346,7 +353,7 @@ class PlotConfig:
     Attributes:
         colors: Explicit fill colour per sample name. Samples without an entry fall back to
             the GraphPad palette.
-        edge_colors: Explicit bar outline colour per sample name.
+        edge_colors: Explicit outline colour per sample name.
         hatches: Explicit hatch pattern per sample name, using the matplotlib pattern
             characters such as ``'//'``.
         point_types: Shape each point is drawn as, by the name of the sample or scatter series
@@ -368,8 +375,8 @@ class PlotConfig:
         palette: Key of the colour palette used for samples with no colour of their own.
         grouped_layout: Leave the wider Prism gap between groups and list each group once in
             the legend, instead of spreading every bar evenly.
-        jitter: Horizontal spread of the replicate points inside a bar, as a fraction of
-            the bar width. ``0.0`` reproduces the centred GraphPad superplot look.
+        jitter: Spread of replicate points inside a sample's category, as a fraction of its
+            mark width. ``0.0`` centres the points on their sample.
         show_points: Whether individual replicates are drawn on top of the bars.
         show_legend: Whether the sample legend is drawn.
         legend_position: Where the legend sits. ``'above'`` and ``'right'`` both keep it
@@ -406,10 +413,10 @@ class PlotConfig:
         axis_line_width: Thickness of the axis lines and the value axis tick marks in points,
             or ``None`` for the Prism default.
         reference_lines: Horizontal and vertical guide lines drawn at their data coordinates.
-        bar_line_width: Thickness of the bar outlines, the error bar lines and the group band
+        bar_line_width: Thickness of the sample mark outlines, error bar lines and group band
             lines in points, or ``None`` for the Prism default.
-        chart: Which sort of graph to draw.
-        orientation: Which way round the bars are drawn.
+        chart: Which sort of graph to draw, including sample summaries and scatter plots.
+        orientation: Which way round sample summaries are drawn.
         x_row: Worksheet row holding the x values of a scatter plot, zero based, or
             ``None`` when they run down a column instead.
         x_columns: Worksheet columns holding the y values of a scatter plot, zero based and

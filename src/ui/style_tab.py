@@ -1,9 +1,9 @@
 """The Plot style tab: how the drawing itself is dressed.
 
 This is the longest tab, because it holds every choice about the marks rather than about
-what they say: joining points, showing replicates, turning the graph, the error bars, the
-outline and fill of a bar, and the colours. Grouping sits at the bottom of it in a block of
-its own, because it acts on the samples highlighted in the list rather than on the drawing.
+what they say: joining points, showing replicates, turning the graph, and choosing the fill,
+outline and colours of each sample mark. Grouping sits at the bottom of it in a block of its
+own, because it acts on the samples highlighted in the list rather than on the drawing.
 
 The colour row above the tabs and the palette picker live here too, since both decide how
 the marks are filled.
@@ -92,12 +92,11 @@ class StyleTabMixin(_AppBase):
         self.bar_width_var.set(f'{self.state.line_width_of("bar"):g}')
 
     def _build_style_panel(self, panel: ttk.Frame) -> None:
-        """Create the tab holding how the bars themselves are drawn.
+        """Create the tab holding how the sample marks themselves are drawn.
 
         The order is the order a graph is dressed in: the marks are joined, the replicates
-        are shown and spread out, the bars are turned and given their error bars, their
-        outline and their fill, and the colours are chosen last because they are the part
-        most often left as they are.
+        are shown and spread out, the sample marks are oriented and styled, and the colours
+        are chosen last because they are the part most often left as they are.
 
         Args:
             panel: The Plot style tab frame.
@@ -160,20 +159,17 @@ class StyleTabMixin(_AppBase):
             (None, None, (), None),
         )
 
-        # The bar thickness is one setting for the whole graph rather than a per sample one,
-        # because it describes the weight of the drawing rather than how a bar is coloured.
-        # The hatch beside it is a placeholder: a bar's fill is really set per sample from
-        # the block below, which is where a hatch has to be chosen from, because two bars
-        # may carry different ones.
+        # The outline width applies to the sample marks as a whole. Fill and hatch remain
+        # per sample because two marks may carry different styles.
         self.bar_width_var = tk.StringVar()
         self.bar_hatch_var = tk.StringVar(value=HATCH_LABELS[0])
         pair_row(
             panel,
-            ('Bar outline width', self.bar_width_var, (), self._update_line_width),
-            ('Bar hatch', self.bar_hatch_var, HATCH_LABELS, None),
+            ('Outline width', self.bar_width_var, (), self._update_line_width),
+            ('Fill hatch', self.bar_hatch_var, HATCH_LABELS, None),
         )
 
-        # The palette sits next to "Colour by" because both decide how the bars are coloured.
+        # The palette sits next to "Colour by" because both decide how the sample marks are coloured.
         # It is a custom menu rather than a combobox because a combobox dropdown is a plain
         # listbox, which can show an icon or a label per row but never both, so it cannot
         # show a colour swatch beside each palette name.
@@ -193,7 +189,7 @@ class StyleTabMixin(_AppBase):
         self.grouped_var = tk.BooleanVar(value=False)
         ttk.Checkbutton(
             panel,
-            text='Group bars (Prism)',
+            text='Group samples (Prism)',
             variable=self.grouped_var,
             command=self._update_grouped,
         ).pack(anchor=tk.W, pady=(8, 0))
@@ -439,7 +435,7 @@ class StyleTabMixin(_AppBase):
             self.state.set_edge_color(name, value)
         self.redraw()
     def _pick_edge(self) -> None:
-        """Open the colour chooser for the bar outline of the selected samples."""
+        """Open the colour chooser for the outline of the selected samples."""
         names = self._selected_samples()
         if not names:
             return
@@ -718,12 +714,12 @@ class StyleTabMixin(_AppBase):
         self._close_palette_menu()
         self._update_palette()
     def _update_palette(self) -> None:
-        """Apply the chosen colour palette to every sample that has no colour of its own.
+        """Apply the chosen colour palette to every sample mark without its own colour.
 
         Choosing a palette is a statement about the whole graph, so any colour the user had
-        set by hand is dropped. Otherwise a single overridden bar would keep an old colour
+        set by hand is dropped. Otherwise a single overridden sample mark would keep an old colour
         that no longer belongs to the chosen palette. Per bar colours can be set again
-        afterwards, which is the way to pull one bar out of the scheme.
+        afterwards, which is the way to pull one sample mark out of the scheme.
 
         Args:
             _event: Unused; the menu applies the palette itself.

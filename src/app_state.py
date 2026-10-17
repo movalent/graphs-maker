@@ -28,6 +28,7 @@ from src.models import (
     POINT_TYPES,
     REFERENCE_LINE_ORIENTATIONS,
     REFERENCE_LINE_STYLES,
+    SAMPLE_CHARTS,
     Y_MAX_HEADROOM,
     Dataset,
     PlotConfig,
@@ -43,7 +44,7 @@ HEX_PATTERN = re.compile(r'^#(?:[0-9a-f]{3}|[0-9a-f]{6})$', re.IGNORECASE)
 # imports for the palette, so the number a field shows is the number the renderer draws with.
 # Thicknesses outside this range are refused. Zero or less is silently ignored by the
 # backend, which would leave the control looking as though it had done nothing, and a very
-# thick line hides the bar it is meant to be drawing around.
+# thick line hides the mark it is meant to be drawing around.
 MIN_LINE_WIDTH = 0.1
 MAX_LINE_WIDTH = 10.0
 # Which of the two sets of lines a thickness applies to: the frame of the graph, or the bars.
@@ -490,11 +491,11 @@ class AppState:
     def _colors_by_group(self) -> bool:
         """Return whether palette colours follow whole groups rather than single samples.
 
-        Only a bar graph groups its bars, so a scatter plot always colours by series. That
-        mirrors :func:`src.plotting._series_colors`, which ignores ``color_by`` because a
-        scatter series is its own thing rather than a member of a group.
+        Sample summary graphs can group their samples, so their palette follows the selected
+        sample or group mode. Scatter plots always colour by series because a scatter series
+        is its own thing rather than a member of a group.
         """
-        return self.config.chart == 'bar' and self.config.color_by == 'group'
+        return self.config.chart in SAMPLE_CHARTS and self.config.color_by == 'group'
 
     def reset_colors(self) -> None:
         """Drop every manual colour so the samples return to the GraphPad palette."""
@@ -503,7 +504,7 @@ class AppState:
         self.config.hatches.clear()
 
     def set_edge_color(self, name: str, color: str) -> bool:
-        """Set the bar outline colour of one sample.
+        """Set the outline colour of one sample.
 
         Args:
             name: Name of the sample.
@@ -519,7 +520,7 @@ class AppState:
         return True
 
     def edge_of(self, name: str) -> str:
-        """Return the bar outline colour of one sample, black when it was not changed."""
+        """Return the outline colour of one sample, black when it was not changed."""
         if name in self.config.edge_colors and normalize_hex(self.config.edge_colors[name]):
             return normalize_hex(self.config.edge_colors[name]) or FALLBACK_COLOR
         return FALLBACK_COLOR
@@ -626,6 +627,17 @@ class AppState:
                 else set(self.config.secondary_y_axis_series)
             )
         samples = self.samples
+        if self.config.chart in ('box', 'violin', 'box_violin'):
+            values = [value for sample in samples for value in sample.values]
+            if self.config.log_axis:
+                positive = [value for value in values if value > 0]
+                return max(positive) * LOG_HEADROOM if positive else 1.0
+            if not values:
+                return 1.0 * Y_MAX_HEADROOM
+            minimum = min(values)
+            maximum = max(values)
+            padding = (maximum - minimum) * 0.05 or max(abs(maximum) * 0.05, 0.05)
+            return maximum + padding
         if self.config.chart == 'bar' and self.config.orientation == 'vertical' and secondary:
             samples = tuple(sample for sample in samples if sample.name not in secondary)
         if self.config.log_axis:

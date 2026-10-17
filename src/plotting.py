@@ -5,12 +5,13 @@ from __future__ import annotations
 import math
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, replace
-from typing import Literal
+from typing import Literal, cast
 
 from matplotlib import font_manager, rcParams
 from matplotlib.artist import Artist
 from matplotlib.axes import Axes
 from matplotlib.axes._secondary_axes import SecondaryAxis
+from matplotlib.collections import PolyCollection
 from matplotlib.container import BarContainer
 from matplotlib.figure import Figure
 from matplotlib.patches import Patch
@@ -395,7 +396,11 @@ def _secondary_axis_config(config: PlotConfig) -> PlotConfig:
 
 def _secondary_y_axis(ax: Axes, config: PlotConfig) -> Axes | None:
     """Create and style a right-side value axis when it is enabled for this layout."""
-    if not config.secondary_y_axis_enabled or (config.chart == 'bar' and config.orientation != 'vertical'):
+    if (
+        not config.secondary_y_axis_enabled
+        or config.chart in ('box', 'violin', 'box_violin')
+        or (config.chart == 'bar' and config.orientation != 'vertical')
+    ):
         return None
     secondary = ax.twinx()
     secondary.patch.set_visible(False)
@@ -1129,13 +1134,13 @@ def _grouped_samples(samples: tuple[Sample, ...], config: PlotConfig) -> tuple[S
 
 
 def plot_dataset(dataset: Dataset, config: PlotConfig | None = None) -> Figure:
-    """Draw the graph described by ``config``, choosing between a bar and a scatter plot.
+    """Draw the graph described by ``config``.
 
     A bar graph summarises a column of replicates: bars are grouped by ``Sample.group`` and
     sub spaced by condition, each bar carries a mean with error bars, and every replicate is
     drawn on top as an open circle. A scatter plot instead draws the paired x and y values
-    read from the sheet, one point per row. Either kind can assign chosen data to an optional
-    right-side value axis when the graph's values run vertically.
+    read from the sheet, one point per row. Box and violin graphs show the distribution of
+    each sample's replicates, and the combined graph overlays a box on its violin.
 
     Args:
         dataset: The parsed experiment.
@@ -1148,7 +1153,9 @@ def plot_dataset(dataset: Dataset, config: PlotConfig | None = None) -> Figure:
     settings = config or PlotConfig()
     if settings.chart == 'scatter':
         return plot_scatter(dataset, settings)
-    return plot_bars(dataset, settings)
+    if settings.chart == 'bar':
+        return plot_bars(dataset, settings)
+    return plot_distributions(dataset, settings)
 
 
 def plot_bars(dataset: Dataset, config: PlotConfig | None = None) -> Figure:
@@ -1341,6 +1348,211 @@ def _jitter_offset(index: int, total: int, jitter: float) -> float:
     if not jitter or total < 2:
         return 0.0
     return (index - (total - 1) / 2) * jitter
+
+
+def plot_distributions(dataset: Dataset, config: PlotConfig | None = None) -> Figure:
+    """Draw box, violin, or overlaid box-and-violin summaries for each sample.
+
+    The sample positions and group spacing follow the bar graph layout. A violin cannot
+    estimate a density from fewer than two distinct values, so such samples are represented
+    by their individual points and a short line at the observed value instead.
+
+    Args:
+        dataset: The parsed experiment.
+        config: Optional presentation settings; defaults are used when omitted.
+
+    Returns:
+        A styled matplotlib figure, or an empty one when the sheet held no samples.
+
+    """
+    settings = config or PlotConfig(chart='box')
+    samples = dataset.ordered(settings.sample_order)
+    if not samples:
+        return _empty_figure(settings)
+
+    apply_graphpad_style()
+    fig = new_figure()
+    ax: Axes = fig.add_subplot()
+    grouped = _grouped_samples(samples, settings)
+    groups = tuple(dict.fromkeys(sample.group for sample in grouped if sample.group))
+    layout = compute_layout(grouped, groups, settings.grouped_layout)
+    colors = _colors(grouped, groups, settings)
+    horizontal = settings.orientation in ('horizontal', 'inverted')
+    line_width = settings.bar_line_width or DEFAULT_LINE_WIDTH
+    box_width = layout.width * (0.32 if settings.chart == 'box_violin' else 0.68)
+    violin_width = layout.width * 0.82
+    combined = settings.chart == 'box_violin'
+    draw_box = settings.chart in ('box', 'box_violin')
+    draw_violin = settings.chart in ('violin', 'box_violin')
+
+    for sample, center, color in zip(samples, layout.centers, colors, strict=True):
+        if not sample.values:
+            continue
+        edge = settings.edge_colors.get(sample.name, BAR_EDGE)
+        values = list(sample.values)
+
+        if draw_violin:
+            if len(values) > 1 and min(values) < max(values):
+                violin = ax.violinplot(
+                    [values],
+                    positions=[center],
+                    widths=violin_width,
+                    orientation='horizontal' if horizontal else 'vertical',
+                    showmeans=False,
+                    showmedians=False,
+                    showextrema=False,
+                )
+                body = cast(list[PolyCollection], violin['bodies'])[0]
+                body.set_facecolor(color)
+                body.set_edgecolor(edge)
+                body.set_linewidth(line_width)
+                body.set_alpha(0.3 if combined else 1.0)
+                body.set_hatch(settings.hatches.get(sample.name, ''))
+                body.set_zorder(1)
+                tag_artists(fig, [body], [sample.name])
+            else:
+                observed = values[0]
+                half_width = violin_width * 0.1
+                coordinates = (
+                    ([center - half_width, center + half_width], [observed, observed])
+                    if not horizontal
+                    else ([observed, observed], [center - half_width, center + half_width])
+                )
+                mark, = ax.plot(
+                    *coordinates,
+                    color=edge,
+                    linewidth=line_width,
+                    solid_capstyle='round',
+                    zorder=3,
+                )
+                tag_artists(fig, [mark], [sample.name])
+
+        if draw_box:
+            boxplot = ax.boxplot(
+                [values],
+                positions=[center],
+                widths=box_width,
+                orientation='horizontal' if horizontal else 'vertical',
+                patch_artist=True,
+                manage_ticks=False,
+                flierprops={'markeredgecolor': edge, 'markerfacecolor': color},
+            )
+            box = boxplot['boxes'][0]
+            box.set_facecolor(color)
+            box.set_edgecolor(edge)
+            box.set_linewidth(line_width)
+            box.set_hatch(settings.hatches.get(sample.name, ''))
+            if combined:
+                box.set_alpha(0.65)
+            for element in ('whiskers', 'caps', 'medians', 'fliers'):
+                for artist in boxplot[element]:
+                    artist.set_color(edge)
+                    if element == 'fliers':
+                        artist.set_markerfacecolor(color)
+                    artist.set_linewidth(line_width)
+            artists = [
+                *boxplot['boxes'],
+                *boxplot['whiskers'],
+                *boxplot['caps'],
+                *boxplot['medians'],
+                *boxplot['fliers'],
+            ]
+            tag_artists(fig, artists, [sample.name] * len(artists))
+
+        if settings.show_points:
+            offsets = [
+                center + _jitter_offset(point_index, sample.n, settings.jitter) * layout.width
+                for point_index in range(sample.n)
+            ]
+            along, across = (values, offsets) if horizontal else (offsets, values)
+            marker, fill = _point_marks(settings, sample.name, color)
+            points = ax.plot(
+                along,
+                across,
+                linestyle='none',
+                color=color,
+                marker=marker,
+                markersize=4.0,
+                markerfacecolor=fill,
+                markeredgecolor=color,
+                markeredgewidth=1.0,
+                zorder=5,
+            )
+            tag_artists(fig, points, [sample.name])
+
+    _apply_distribution_value_axis(ax, samples, dataset, settings, horizontal)
+    _add_sample_labels(ax, layout, samples, horizontal, settings.x_font_size, settings.label_rotation)
+    _add_group_bands(ax, layout, line_width, horizontal)
+    if horizontal:
+        ax.set_ylim(layout.left, layout.right)
+    else:
+        ax.set_xlim(layout.left, layout.right)
+    _draw_reference_lines(ax, settings.reference_lines)
+    if settings.show_legend:
+        _add_legend(
+            ax,
+            [sample.name for sample in samples],
+            [sample.group for sample in grouped],
+            colors,
+            settings.legend_size,
+            settings.grouped_layout,
+            settings.legend_position,
+            settings.legend_font,
+        )
+    rows = legend_rows(legend_entries(grouped, settings), settings)
+    if horizontal:
+        fig.subplots_adjust(
+            left=_left_margin(settings),
+            right=_right_margin(settings),
+            top=_top_margin(settings, rows),
+        )
+    else:
+        fig.subplots_adjust(
+            bottom=_bottom_margin(settings),
+            right=_right_margin(settings),
+            top=_top_margin(settings, rows),
+        )
+    _fix_axes_dimensions(fig, ax, settings)
+    _apply_title(fig, ax, settings)
+    return fig
+
+
+def _apply_distribution_value_axis(
+    ax: Axes,
+    samples: tuple[Sample, ...],
+    dataset: Dataset,
+    config: PlotConfig,
+    horizontal: bool,
+) -> None:
+    """Fit the value axis to the full observed distributions instead of a zero baseline."""
+    values = [value for sample in samples for value in sample.values]
+    if config.log_axis:
+        positive = [value for value in values if value > 0]
+        if positive:
+            low = config.y_min if config.y_min is not None else min(positive) / LOG_HEADROOM
+            high = config.y_max if config.y_max is not None else max(positive) * LOG_HEADROOM
+            if horizontal:
+                ax.set_xscale('log')
+                ax.set_xlim(low, high)
+            else:
+                ax.set_yscale('log')
+                ax.set_ylim(low, high)
+    elif values:
+        minimum = min(values)
+        maximum = max(values)
+        padding = (maximum - minimum) * 0.05 or max(abs(maximum) * 0.05, 0.05)
+        low = config.y_min if config.y_min is not None else minimum - padding
+        high = config.y_max if config.y_max is not None else maximum + padding
+        if horizontal:
+            ax.set_xlim(low, high)
+        else:
+            ax.set_ylim(low, high)
+    if config.y_major_step:
+        if horizontal:
+            ax.xaxis.set_major_locator(MultipleLocator(config.y_major_step))
+        else:
+            ax.yaxis.set_major_locator(MultipleLocator(config.y_major_step))
+    _finish_value_axis(ax, dataset, config, horizontal)
 
 
 def plot_scatter(dataset: Dataset, config: PlotConfig | None = None) -> Figure:

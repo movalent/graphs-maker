@@ -117,8 +117,8 @@ class GeneralTabMixin(_AppBase):
         self.legend_frame = section(tab, 'Legend')
         self._build_legend_controls(self.legend_frame)
 
-        # The sort of graph decides which of the fields below mean anything: a bar graph
-        # reads whole columns, while a scatter plot has to be told where its x values are.
+        # The sort of graph decides which fields below mean anything: sample summaries
+        # read columns of replicates, while scatter plots need the x values named.
         self.chart_var = tk.StringVar(value=CHART_LABELS[DEFAULT_CHART])
         option_row(
             tab,
@@ -358,23 +358,26 @@ class GeneralTabMixin(_AppBase):
         self.state.config.title = text or None
         self.redraw()
     def _update_chart(self, _event: object = None) -> None:
-        """Switch between a bar graph and a scatter plot.
+        """Switch between a sample summary and a scatter plot.
 
-        Error bars, replicate spread and grouping describe a summary of several replicates,
-        which a scatter plot of single points has no meaning for, so those controls are hidden
-        rather than left on screen doing nothing.
+        Scatter settings only apply to paired x and y values. Sample summary graphs read
+        columns of replicates, so the sheet preview returns to those columns when selected.
         """
         if self.syncing:
             return
         chosen = label_to(CHART_KINDS, CHART_LABELS, self.chart_var.get(), DEFAULT_CHART)
         self.state.config.chart = chosen
         self._sync_scatter_panels()
-        self.sheet.set_mode('x_and_y' if chosen == 'scatter' else 'columns')
-        if chosen == 'bar':
-            self.sheet.select_all_columns()
-            self._describe_column_selection()
-        else:
+        if chosen == 'scatter':
+            self.sheet.set_mode('x_and_y')
             self._seed_scatter_fields()
+        else:
+            self.sheet.set_mode('columns')
+            columns = self.state.columns
+            if columns is None:
+                columns = self.sheet.measured_columns()
+            self.sheet.set_selection(columns, None)
+            self._describe_column_selection()
         # The list shows series for a scatter plot and samples for a bar graph, so it is
         # rebuilt here rather than only when a file is read. Without this the rows still
         # named after samples, or still empty, and a click on the graph has nothing to

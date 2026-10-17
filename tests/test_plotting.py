@@ -17,6 +17,7 @@ from matplotlib.figure import Figure
 from matplotlib.lines import Line2D
 from matplotlib.text import Text
 from src.app_state import HEX_PATTERN
+from src.cli import main as cli_main
 from src.cli import resolve_output
 from src.curve_fitting import _student_t_critical, fit_polynomial
 from src.graphpad_style import (
@@ -109,6 +110,65 @@ def test_the_figure_has_a_border_around_its_outer_boundary(simple_dataset: Datas
 
     assert colors.to_hex(figure.patch.get_edgecolor()) == '#000000'
     assert figure.patch.get_linewidth() == pytest.approx(DEFAULT_LINE_WIDTH)
+
+
+@pytest.mark.parametrize('chart', ('box', 'violin', 'box_violin'))
+def test_distribution_graph_types_apply_sample_fill_and_outline(
+    simple_dataset: Dataset,
+    chart: ChartKind,
+) -> None:
+    fill = '#336699'
+    outline = '#cc3300'
+    figure = plot_dataset(
+        simple_dataset,
+        PlotConfig(chart=chart, colors={'Control': fill}, edge_colors={'Control': outline}),
+    )
+    ax = axes_of(figure)
+
+    if chart in ('box', 'box_violin'):
+        assert colors.to_hex(ax.patches[0].get_facecolor()) == fill
+        assert colors.to_hex(ax.patches[0].get_edgecolor()) == outline
+    if chart in ('violin', 'box_violin'):
+        body = ax.collections[0]
+        assert colors.to_hex(body.get_facecolor()[0]) == fill
+        assert colors.to_hex(body.get_edgecolor()[0]) == outline
+
+
+def test_box_and_violin_are_drawn_together_for_each_sample(simple_dataset: Dataset) -> None:
+    figure = plot_dataset(simple_dataset, PlotConfig(chart='box_violin'))
+
+    assert len(axes_of(figure).patches) == len(simple_dataset.samples)
+    assert len(axes_of(figure).collections) == len(simple_dataset.samples)
+
+
+def test_violin_plot_displays_constant_sample_values_without_kde(simple_dataset: Dataset) -> None:
+    dataset = replace(
+        simple_dataset,
+        samples=(Sample('Constant', 'A', (4.0, 4.0, 4.0)),),
+    )
+    figure = plot_dataset(dataset, PlotConfig(chart='violin', show_points=False))
+
+    assert len(axes_of(figure).lines) == 1
+    assert axes_of(figure).lines[0].get_ydata() == pytest.approx((4.0, 4.0))
+
+
+def test_horizontal_box_plot_keeps_negative_data_in_view() -> None:
+    dataset = Dataset(samples=(Sample('Negative', '', (-8.0, -5.0, -2.0)),), y_label='Value')
+    figure = plot_dataset(dataset, PlotConfig(chart='box', orientation='horizontal'))
+
+    low, high = axes_of(figure).get_xlim()
+    assert low < -8.0
+    assert high > -2.0
+
+
+def test_cli_writes_a_combined_box_and_violin_graph(tmp_path: Path) -> None:
+    output = tmp_path / 'combined.png'
+
+    result = cli_main(['--input', str(INPUT_FILE), '--chart', 'box_violin', '--output', str(output)])
+
+    assert result == 0
+    assert output.is_file()
+    assert output.stat().st_size > 0
 
 
 def test_a_connected_series_is_drawn_in_its_own_colour(scatter_dataset: Dataset) -> None:

@@ -12,7 +12,7 @@ from pathlib import Path
 os.environ.setdefault('MPLBACKEND', 'Agg')
 
 from src.excel_reader import parse_columns, read_dataset, read_table, read_xy
-from src.models import ORIENTATIONS, Dataset, PlotConfig
+from src.models import CHART_KINDS, ORIENTATIONS, ChartKind, Dataset, PlotConfig
 from src.plotting import plot_dataset
 
 DEFAULT_OUTPUT = Path('output')
@@ -35,6 +35,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument('--format', choices=SUPPORTED_FORMATS, default='png', help='Output image format.')
     parser.add_argument('--dpi', type=int, default=300, help='Resolution of raster output.')
     parser.add_argument('--title', default=None, help='Optional figure title.')
+    parser.add_argument('--chart', choices=CHART_KINDS, help='Graph type to draw.')
     parser.add_argument('--log-axis', action='store_true', help='Use a logarithmic value axis.')
     parser.add_argument(
         '--error',
@@ -50,7 +51,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument('--order', nargs='*', default=[], help='Sample names in the desired left to right order.')
     parser.add_argument('--no-points', action='store_true', help='Hide the individual replicate points.')
-    parser.add_argument('--jitter', type=float, default=0.0, help='Spread of replicates inside a bar, in bar widths.')
+    parser.add_argument(
+        '--jitter',
+        type=float,
+        default=0.0,
+        help='Spread of replicates inside a category, in mark widths.',
+    )
     parser.add_argument(
         '--gui',
         action='store_true',
@@ -60,12 +66,12 @@ def build_parser() -> argparse.ArgumentParser:
         '--orientation',
         choices=ORIENTATIONS,
         default='vertical',
-        help='Which way round the bars are drawn.',
+        help='Which way round categories and values are drawn.',
     )
     parser.add_argument(
         '--scatter',
         action='store_true',
-        help='Plot paired x and y values as points instead of drawing bars.',
+        help='Alias for --chart scatter.',
     )
     parser.add_argument('--x-row', type=int, default=None, help='Row holding the scatter x values, 1 based.')
     parser.add_argument('--x-column', type=int, default=None, help='Column holding the scatter x values, 1 based.')
@@ -105,10 +111,13 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     """
     args = build_parser().parse_args(argv)
+    chart: ChartKind = args.chart or ('scatter' if args.scatter else 'bar')
+    if args.scatter and chart != 'scatter':
+        raise SystemExit('--scatter cannot be combined with a non-scatter --chart.')
     # A scatter sheet has no Group header row, so it cannot be read as a bar sheet at all.
     # It is read from the rows and columns the caller named instead.
-    dataset = _scatter_from_args(args) if args.scatter else read_dataset(args.input)
-    config = _config_from_args(args)
+    dataset = _scatter_from_args(args) if chart == 'scatter' else read_dataset(args.input)
+    config = _config_from_args(args, chart)
     if args.gui:
         from src.app import GraphPadApp  # imported late so batch mode never needs a display
         from src.app_state import AppState
@@ -158,11 +167,12 @@ def _scatter_from_args(args: argparse.Namespace) -> Dataset:
     return Dataset(samples=(), series=series, x_label=x_label)
 
 
-def _config_from_args(args: argparse.Namespace) -> PlotConfig:
+def _config_from_args(args: argparse.Namespace, chart: ChartKind) -> PlotConfig:
     """Build the presentation settings described by the parsed arguments.
 
     Args:
         args: The parsed command line arguments.
+        chart: Graph type selected by the caller.
 
     Returns:
         The settings to plot with.
@@ -176,6 +186,6 @@ def _config_from_args(args: argparse.Namespace) -> PlotConfig:
         color_by=args.color_by,
         jitter=args.jitter,
         show_points=not args.no_points,
-        chart='scatter' if args.scatter else 'bar',
+        chart=chart,
         orientation=args.orientation,
     )
