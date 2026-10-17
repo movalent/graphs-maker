@@ -9,7 +9,7 @@ from collections.abc import Iterator
 from pathlib import Path
 from tkinter import ttk
 from types import SimpleNamespace
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import pandas as pd
 import pytest
@@ -48,13 +48,26 @@ def _stub_dialogs(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(data_pane.messagebox, 'askyesno', lambda *_a, **_k: True)
 
 
-def _hide(window: GraphPadApp) -> None:
-    """Move the window off screen so it never flashes up, but keep it laid out.
+@pytest.fixture(autouse=True)
+def _withdraw_new_tk_roots(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Withdraw each Tk root immediately so GUI tests never expose a window."""
+    create_root = tk.Tk
 
-    A withdrawn window is never mapped, so Tk reports placeholder sizes such as a one pixel
-    button. That made real layout checks impossible.
+    def create_withdrawn_root(*args: Any, **kwargs: Any) -> tk.Tk:
+        root = create_root(*args, **kwargs)
+        root.withdraw()
+        return root
+
+    monkeypatch.setattr(tk, 'Tk', create_withdrawn_root)
+
+
+def _hide(window: GraphPadApp) -> None:
+    """Map the withdrawn window off-screen so tests can inspect its real layout.
+
+    The off-screen position is set before mapping so the window manager never displays it.
     """
     window.root.geometry('4000x3000-4000-3000')
+    window.root.deiconify()
     window.root.update()
     window.root.update_idletasks()
 
@@ -81,6 +94,7 @@ def test_window_builds_and_draws(app: GraphPadApp) -> None:
     assert len(app.canvas.figure.axes) == 1
 
 
+@pytest.mark.undo_redo
 def test_undo_and_redo_keyboard_shortcuts(app: GraphPadApp) -> None:
     app.title_var.set('Edited title')
     assert app.state.config.title == 'Edited title'
@@ -106,6 +120,7 @@ def test_undo_and_redo_keyboard_shortcuts(app: GraphPadApp) -> None:
     assert app.root.bind('<Control-Shift-KeyPress-Z>')
 
 
+@pytest.mark.undo_redo
 def test_undo_shortcut_leaves_text_editing_to_the_focused_entry(
     app: GraphPadApp, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -117,6 +132,7 @@ def test_undo_shortcut_leaves_text_editing_to_the_focused_entry(
     assert app.state.config.title == 'Edited title'
 
 
+@pytest.mark.undo_redo
 def test_reset_is_one_undoable_edit(app: GraphPadApp) -> None:
     app.title_var.set('Before reset')
     app._reset()
@@ -127,6 +143,7 @@ def test_reset_is_one_undoable_edit(app: GraphPadApp) -> None:
     assert app.title_var.get() == 'Before reset'
 
 
+@pytest.mark.undo_redo
 def test_preview_rounding_is_undoable(app: GraphPadApp) -> None:
     app.decimals_var.set('4')
     app._update_preview_decimals()
@@ -951,6 +968,7 @@ def test_a_marked_sheet_arrives_with_its_rows_already_assigned(blank_app: GraphP
     assert blank_app.sheet.columns == blank_app.sheet.measured_columns()
 
 
+@pytest.mark.undo_redo
 def test_preview_column_selection_can_be_undone_and_redone(blank_app: GraphPadApp) -> None:
     assert blank_app.load_file(INPUT_FILE)
     original_dataset = blank_app.state.dataset

@@ -41,3 +41,4 @@ disallow_untyped_calls = false
 [tool.pytest.ini_options]
 testpaths = ['tests']
 addopts = '-n 4'
+markers = ['undo_redo: GUI undo/redo tests, enabled with --run-undo-redo']
