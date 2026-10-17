@@ -6,9 +6,9 @@ Python executable: ""C:\Users\Klaudia\miniconda3\envs\py314_graphpad\python.exe"
 Do NOT use 'python' or 'pip' without explicit path.
 
 ## Product
-This is a python script that uses data from excel sheet to create graphs in GraphPad style.
-It displays interactive window where order of samples, samples color, axis scale etc. can be adjusted by the end user.
-It also shows a preview of input data below the graph. 
+This is a python script that uses data from excel sheet to create graphs in GraphPad-style interface GUI.
+GUI displays interactive window where multiple graph settings can be adjusted by the end user in an interactive way.
+The goal is to remove rarely used GraphPad functions and condense most useful ones in clean and easy to navigate interface.
 
 ## Project Structure
 - `input/` - Input files to be analysed
@@ -54,3 +54,4 @@ After completing a task, report:
 - Assumptions
 - Known limitations
 - Remaining risks
+- Concise commit message for introduced changes
