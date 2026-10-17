@@ -168,6 +168,7 @@ class SampleListMixin(_AppBase):
         self.listbox.see(self._row_id(bounded))
         self._show_selected_color()
         self._show_selected_style()
+        self._sync_curve_fit_selection()
     def _show_selected_color(self) -> None:
         """Copy the colour of the selected sample into the hex field and the swatch."""
         selected = self._selected_indices()
@@ -230,6 +231,16 @@ class SampleListMixin(_AppBase):
         """Refresh the panels for the samples that are now highlighted."""
         self._show_selected_style()
         self._show_selected_color()
+        self._sync_curve_fit_selection()
+
+    def _sync_curve_fit_selection(self) -> None:
+        """Redraw a selected-only confidence band when the highlighted series change."""
+        config = self.state.config
+        if config.curve_fit_enabled and config.curve_fit_selected_only:
+            selected = self._selected_samples()
+            if config.curve_fit_selected_series != selected:
+                config.curve_fit_selected_series = selected
+                self.redraw(mark_dirty=False)
     def _selected_samples(self) -> tuple[str, ...]:
         """Return the names of every highlighted entry, in list order.
 

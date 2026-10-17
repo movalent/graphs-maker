@@ -122,6 +122,15 @@ class _AppBase:
     x_entry: ttk.Entry
     series_var: tk.StringVar
     series_entry: ttk.Entry
+    curve_fit_enabled_var: tk.BooleanVar
+    curve_fit_model_var: tk.StringVar
+    curve_fit_degree_var: tk.StringVar
+    curve_fit_confidence_var: tk.StringVar
+    curve_fit_selected_only_var: tk.BooleanVar
+    curve_fit_show_equation_var: tk.BooleanVar
+    curve_fit_equation_position_var: tk.StringVar
+    curve_fit_equation_font_var: tk.StringVar
+    curve_fit_equation_size_var: tk.StringVar
 
     # The X and primary Y axes, their shared settings, and the optional secondary Y controls.
     axis_width_var: tk.StringVar

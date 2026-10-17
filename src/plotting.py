@@ -17,6 +17,7 @@ from matplotlib.patches import Patch
 from matplotlib.ticker import MultipleLocator
 from matplotlib.transforms import blended_transform_factory
 
+from src.curve_fitting import CurveFit, fit_polynomial
 from src.graphpad_style import (
     DEFAULT_LINE_WIDTH,
     apply_graphpad_style,
@@ -25,6 +26,7 @@ from src.graphpad_style import (
     resolve_font,
 )
 from src.models import (
+    DEFAULT_FONT_TYPE,
     LOG_HEADROOM,
     POINT_MARKERS,
     SOLID_POINTS,
@@ -1377,6 +1379,9 @@ def plot_scatter(dataset: Dataset, config: PlotConfig | None = None) -> Figure:
     colors = _series_colors(names, settings)
     size = settings.point_size or DEFAULT_POINT_SIZE
     width = settings.bar_line_width or DEFAULT_LINE_WIDTH
+    fitted: list[tuple[str, str, CurveFit]] = []
+    skipped_fits: list[str] = []
+    fit_axis_bounds: dict[Axes, list[float]] = {}
 
     connected = _connected_series(names, settings)
     for one, color in zip(series, colors, strict=True):
@@ -1419,6 +1424,59 @@ def plot_scatter(dataset: Dataset, config: PlotConfig | None = None) -> Figure:
     # The x label is written after the shared axis finishing, because that helper clears the
     # x label for a bar graph, where the samples are named along that axis instead.
     ax.set_xlabel(settings.x_label_override or dataset.x_label)
+    if settings.curve_fit_enabled:
+        degree = 1 if settings.curve_fit_model == 'linear' else settings.curve_fit_degree
+        for one, color in zip(series, colors, strict=True):
+            target_ax = secondary_ax if one.name in secondary_names and secondary_ax is not None else ax
+            if settings.log_axis or (target_ax is secondary_ax and settings.secondary_log_axis):
+                skipped_fits.append(f'{one.name}: fitting is unavailable on a logarithmic Y axis')
+                continue
+            try:
+                fit = fit_polynomial(
+                    [point.x for point in one.points],
+                    [point.y for point in one.points],
+                    degree,
+                    settings.curve_fit_confidence / 100.0,
+                )
+            except (ValueError, ArithmeticError) as error:
+                skipped_fits.append(f'{one.name}: {error}')
+                continue
+            if not settings.curve_fit_selected_only or one.name in settings.curve_fit_selected_series:
+                target_ax.fill_between(fit.x, fit.lower, fit.upper, color=color, alpha=0.16, linewidth=0, zorder=1)
+            target_ax.plot(fit.x, fit.y, color=color, linestyle='--', linewidth=1.2, zorder=2)
+            fitted.append((one.name, color, fit))
+            if not settings.curve_fit_selected_only or one.name in settings.curve_fit_selected_series:
+                fit_axis_bounds.setdefault(target_ax, []).extend((*fit.lower, *fit.upper))
+        for target_ax, band_values in fit_axis_bounds.items():
+            current_min, current_max = target_ax.get_ylim()
+            if target_ax is ax:
+                y_min, y_max = settings.y_min, settings.y_max
+            else:
+                y_min, y_max = settings.secondary_y_min, settings.secondary_y_max
+            target_ax.set_ylim(
+                min(current_min, min(band_values)) if y_min is None else current_min,
+                max(current_max, max(band_values)) if y_max is None else current_max,
+            )
+    if settings.curve_fit_show_equation and fitted:
+        equations = (
+            tuple(item for item in fitted if item[0] in settings.curve_fit_selected_series)
+            if settings.curve_fit_selected_only
+            else fitted
+        )
+        _add_fit_equations(ax, equations, settings)
+    if skipped_fits:
+        ax.text(
+            0.5,
+            0.99,
+            f'Curve fit skipped: {"; ".join(skipped_fits)}',
+            transform=ax.transAxes,
+            ha='center',
+            va='top',
+            color='#b00020',
+            fontsize=8,
+            bbox={'facecolor': 'white', 'edgecolor': 'none', 'alpha': 0.85, 'pad': 2},
+            zorder=6,
+        )
     _draw_reference_lines(ax, settings.reference_lines)
     if settings.show_legend:
         _add_legend(
@@ -1457,6 +1515,25 @@ def plot_scatter(dataset: Dataset, config: PlotConfig | None = None) -> Figure:
     # from the axes, and those are only final here.
     _apply_title(fig, ax, settings)
     return fig
+
+
+def _add_fit_equations(ax: Axes, fitted: Sequence[tuple[str, str, CurveFit]], settings: PlotConfig) -> None:
+    """Write each fitted series equation in the selected corner of the plotting area."""
+    top = settings.curve_fit_equation_position == 'top-left'
+    for index, (name, color, fit) in enumerate(fitted):
+        equation = f'{name}: {fit.equation}' if len(fitted) > 1 else fit.equation
+        ax.text(
+            0.02 if top else 0.98,
+            0.98 - index * 0.075 if top else 0.02 + index * 0.075,
+            equation,
+            transform=ax.transAxes,
+            ha='left' if top else 'right',
+            va='top' if top else 'bottom',
+            color=color,
+            fontsize=settings.curve_fit_equation_size or 9,
+            fontfamily=_usable_font(settings.curve_fit_equation_font or DEFAULT_FONT_TYPE),
+            zorder=5,
+        )
 
 
 def _add_series_labels(

@@ -28,6 +28,15 @@ ORIENTATION_LABELS: dict[Orientation, str] = {
 ChartKind = Literal['bar', 'scatter']
 CHART_KINDS: tuple[ChartKind, ...] = ('bar', 'scatter')
 CHART_LABELS: dict[ChartKind, str] = {'bar': 'Bar graph', 'scatter': 'Scatter plot'}
+CurveFitModel = Literal['linear', 'polynomial']
+CURVE_FIT_MODELS: tuple[CurveFitModel, ...] = ('linear', 'polynomial')
+CURVE_FIT_MODEL_LABELS: dict[CurveFitModel, str] = {'linear': 'Linear', 'polynomial': 'Polynomial'}
+CurveEquationPosition = Literal['top-left', 'bottom-right']
+CURVE_EQUATION_POSITIONS: tuple[CurveEquationPosition, ...] = ('top-left', 'bottom-right')
+CURVE_EQUATION_POSITION_LABELS: dict[CurveEquationPosition, str] = {
+    'top-left': 'Top-left',
+    'bottom-right': 'Bottom-right',
+}
 # The graph a sheet is drawn as until the user says otherwise. A bar graph is the Prism
 # default, and the only one that can be drawn without the user naming any rows or columns.
 DEFAULT_CHART: ChartKind = 'bar'
@@ -438,6 +447,18 @@ class PlotConfig:
             individually. The shapes that have no interior are filled rather than left open,
             because an open cross is a cross drawn as two bare lines.
         connect_points: Whether the points of a scatter series are joined by a line.
+        curve_fit_enabled: Whether scatter series have fitted curves and confidence bands.
+        curve_fit_model: Linear regression or polynomial regression.
+        curve_fit_degree: Polynomial degree when the selected model is polynomial.
+        curve_fit_confidence: Confidence level of the fitted-mean confidence band, in percent.
+        curve_fit_selected_only: Whether to show the confidence band only for highlighted
+            scatter series.
+        curve_fit_selected_series: Highlighted series for which to draw the confidence band.
+        curve_fit_show_equation: Whether to print fitted equations on scatter plots.
+        curve_fit_equation_position: Corner where fitted equations are shown.
+        curve_fit_equation_font: Font family for fitted equations, or ``None`` to follow
+            the graph's default family.
+        curve_fit_equation_size: Font size for fitted equations, or ``None`` for the default.
 
     """
 
@@ -504,3 +525,13 @@ class PlotConfig:
     label_series: tuple[str, ...] = ()
     series_order: tuple[str, ...] = ()
     reference_lines: tuple[ReferenceLine, ...] = ()
+    curve_fit_enabled: bool = False
+    curve_fit_model: CurveFitModel = 'linear'
+    curve_fit_degree: int = 2
+    curve_fit_confidence: float = 95.0
+    curve_fit_selected_only: bool = False
+    curve_fit_selected_series: tuple[str, ...] = ()
+    curve_fit_show_equation: bool = True
+    curve_fit_equation_position: CurveEquationPosition = 'bottom-right'
+    curve_fit_equation_font: str | None = None
+    curve_fit_equation_size: int | None = None

@@ -9,12 +9,16 @@ anything at all.
 from __future__ import annotations
 
 import tkinter as tk
-from tkinter import ttk
+from tkinter import messagebox, ttk
 
 from src.graphpad_style import DEFAULT_LEGEND_FONT
 from src.models import (
     CHART_KINDS,
     CHART_LABELS,
+    CURVE_EQUATION_POSITION_LABELS,
+    CURVE_EQUATION_POSITIONS,
+    CURVE_FIT_MODEL_LABELS,
+    CURVE_FIT_MODELS,
     DEFAULT_CHART,
     DEFAULT_FONT_TYPE,
     DEFAULT_LEGEND_POSITION,
@@ -28,8 +32,8 @@ from src.models import (
     X_DIRECTIONS,
 )
 from src.ui.base import _SYNTHETIC_EVENT, PANEL_WIDTH, _AppBase
-from src.ui.fields import label_to
-from src.ui.widgets import option_row, pair_row, section
+from src.ui.fields import label_to, optional_size
+from src.ui.widgets import number_row, option_row, pair_row, section
 
 # The font families offered wherever a font type can be picked. They are the faces that
 # ship with Windows and are therefore already installed, plus the two matplotlib fallbacks
@@ -74,6 +78,15 @@ class GeneralTabMixin(_AppBase):
         self.chart_var.set(CHART_LABELS[config.chart])
         self.connect_var.set(config.connect_points)
         self.point_labels_var.set(config.point_labels)
+        self.curve_fit_enabled_var.set(config.curve_fit_enabled)
+        self.curve_fit_model_var.set(CURVE_FIT_MODEL_LABELS[config.curve_fit_model])
+        self.curve_fit_degree_var.set(str(config.curve_fit_degree))
+        self.curve_fit_confidence_var.set(str(config.curve_fit_confidence))
+        self.curve_fit_selected_only_var.set(config.curve_fit_selected_only)
+        self.curve_fit_show_equation_var.set(config.curve_fit_show_equation)
+        self.curve_fit_equation_position_var.set(CURVE_EQUATION_POSITION_LABELS[config.curve_fit_equation_position])
+        self.curve_fit_equation_font_var.set(config.curve_fit_equation_font or DEFAULT_FONT_TYPE)
+        self.curve_fit_equation_size_var.set(str(config.curve_fit_equation_size or 9))
         # The scatter block is shown, hidden or greyed according to the kind of graph, so it
         # has to be brought into step with the chart field that was just set.
         self._sync_scatter_panels()
@@ -117,6 +130,7 @@ class GeneralTabMixin(_AppBase):
         # series, which a bar graph never does, so this block only appears for one.
         self.xy_frame = section(tab, 'Scatter plot only')
         self._build_xy_controls(self.xy_frame)
+        self._build_curve_fit_controls(self.xy_frame)
 
     def _build_title_controls(self, panel: tk.Widget) -> None:
         """Create the controls that say how the plot title is drawn.
@@ -229,6 +243,115 @@ class GeneralTabMixin(_AppBase):
             font=('Segoe UI', 8),
             wraplength=PANEL_WIDTH - 60,
         ).pack(anchor=tk.W, pady=(2, 0))
+
+    def _build_curve_fit_controls(self, panel: tk.Widget) -> None:
+        """Create optional curve-fitting and equation controls for scatter plots.
+
+        Args:
+            panel: The scatter-only section.
+
+        """
+        fit_panel = section(panel, 'Curve fit')
+        self.curve_fit_enabled_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(
+            fit_panel,
+            text='Show fitted curves and confidence bands',
+            variable=self.curve_fit_enabled_var,
+            command=self._update_curve_fit,
+        ).pack(anchor=tk.W)
+        self.curve_fit_model_var = tk.StringVar(value=CURVE_FIT_MODEL_LABELS['linear'])
+        self.curve_fit_degree_var = tk.StringVar(value='2')
+        option_row(
+            fit_panel,
+            (
+                'Fit model',
+                self.curve_fit_model_var,
+                tuple(CURVE_FIT_MODEL_LABELS[model] for model in CURVE_FIT_MODELS),
+                self._update_curve_fit,
+            ),
+            ('Polynomial degree', self.curve_fit_degree_var, ('2', '3', '4', '5'), self._update_curve_fit),
+        )
+        self.curve_fit_confidence_var = tk.StringVar(value='95')
+        number_row(fit_panel, 'Confidence (%)', self.curve_fit_confidence_var, self._update_curve_fit)
+        ttk.Label(
+            fit_panel,
+            text='Pointwise confidence band for the fitted mean.',
+            font=('Segoe UI', 8),
+            wraplength=PANEL_WIDTH - 60,
+        ).pack(anchor=tk.W, pady=(2, 0))
+        self.curve_fit_selected_only_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(
+            fit_panel,
+            text='Show confidence band and equation for selected series only',
+            variable=self.curve_fit_selected_only_var,
+            command=self._update_curve_fit,
+        ).pack(anchor=tk.W, pady=(4, 0))
+        self.curve_fit_show_equation_var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(
+            fit_panel,
+            text='Show fitted equation',
+            variable=self.curve_fit_show_equation_var,
+            command=self._update_curve_fit,
+        ).pack(anchor=tk.W, pady=(6, 0))
+        self.curve_fit_equation_position_var = tk.StringVar(value='Bottom-right')
+        self.curve_fit_equation_font_var = tk.StringVar(value=DEFAULT_FONT_TYPE)
+        self.curve_fit_equation_size_var = tk.StringVar(value='9')
+        option_row(
+            fit_panel,
+            (
+                'Equation position',
+                self.curve_fit_equation_position_var,
+                tuple(CURVE_EQUATION_POSITION_LABELS[position] for position in CURVE_EQUATION_POSITIONS),
+                self._update_curve_fit,
+            ),
+            (None, None, (), None),
+        )
+        pair_row(
+            fit_panel,
+            ('Equation font', self.curve_fit_equation_font_var, FONT_CHOICES, self._update_curve_fit),
+            ('Equation size', self.curve_fit_equation_size_var, (), self._update_curve_fit),
+        )
+
+    def _update_curve_fit(self, _event: object = None) -> None:
+        """Apply curve-fit, confidence-band, and equation display settings."""
+        if self.syncing:
+            return
+        config = self.state.config
+        try:
+            confidence = float(self.curve_fit_confidence_var.get().strip())
+        except ValueError:
+            confidence = 0.0
+        if not 0.0 < confidence < 100.0:
+            messagebox.showerror(
+                'Invalid confidence level',
+                'Enter a confidence level greater than 0% and less than 100%.',
+                parent=self.root,
+            )
+            self.curve_fit_confidence_var.set(str(config.curve_fit_confidence))
+            return
+        config.curve_fit_enabled = self.curve_fit_enabled_var.get()
+        config.curve_fit_model = label_to(
+            CURVE_FIT_MODELS,
+            CURVE_FIT_MODEL_LABELS,
+            self.curve_fit_model_var.get(),
+            'linear',
+        )
+        config.curve_fit_degree = int(self.curve_fit_degree_var.get())
+        config.curve_fit_confidence = confidence
+        config.curve_fit_selected_only = self.curve_fit_selected_only_var.get()
+        config.curve_fit_selected_series = self._selected_samples() if config.curve_fit_selected_only else ()
+        config.curve_fit_show_equation = self.curve_fit_show_equation_var.get()
+        config.curve_fit_equation_position = label_to(
+            CURVE_EQUATION_POSITIONS,
+            CURVE_EQUATION_POSITION_LABELS,
+            self.curve_fit_equation_position_var.get(),
+            'bottom-right',
+        )
+        chosen_font = self.curve_fit_equation_font_var.get()
+        config.curve_fit_equation_font = None if chosen_font == DEFAULT_FONT_TYPE else chosen_font
+        config.curve_fit_equation_size = optional_size(self.curve_fit_equation_size_var.get())
+        self.redraw()
+
     def _update_title(self) -> None:
         """Copy the title field into the settings."""
         text = self.title_var.get().strip()

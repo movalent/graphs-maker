@@ -18,6 +18,7 @@ from matplotlib.lines import Line2D
 from matplotlib.text import Text
 from src.app_state import HEX_PATTERN
 from src.cli import resolve_output
+from src.curve_fitting import _student_t_critical, fit_polynomial
 from src.graphpad_style import (
     DEFAULT_PALETTE,
     LEGACY_PALETTE,
@@ -136,6 +137,89 @@ def test_an_unconnected_series_is_left_without_a_line(scatter_dataset: Dataset) 
     figure = plot_dataset(scatter_dataset, PlotConfig(chart='scatter', connect_points=False))
     for line in axes_of(figure).get_lines():
         assert line.get_linestyle() == 'None'
+
+
+def test_polynomial_fit_returns_a_confidence_band_and_equation() -> None:
+    x_values = (0.0, 1.0, 2.0, 3.0, 4.0, 5.0)
+    y_values = (0.0, 1.2, 3.9, 9.1, 15.8, 25.0)
+    fit_95 = fit_polynomial(x_values, y_values, degree=2, confidence=0.95)
+    fit_99 = fit_polynomial(x_values, y_values, degree=2, confidence=0.99)
+
+    assert len(fit_95.x) == len(fit_95.y) == len(fit_95.lower) == len(fit_95.upper) == 200
+    assert 'x^2' in fit_95.equation
+    assert fit_95.lower[100] < fit_95.y[100] < fit_95.upper[100]
+    assert fit_99.y[100] - fit_99.lower[100] > fit_95.y[100] - fit_95.lower[100]
+
+
+def test_confidence_band_uses_student_t_critical_values() -> None:
+    assert _student_t_critical(0.95, 10) == pytest.approx(2.22813885, rel=1e-7)
+
+
+def test_scatter_curve_fits_draw_colored_bands_and_configured_equations(scatter_dataset: Dataset) -> None:
+    figure = plot_dataset(
+        scatter_dataset,
+        PlotConfig(
+            chart='scatter',
+            curve_fit_enabled=True,
+            curve_fit_equation_position='top-left',
+            curve_fit_equation_font='DejaVu Sans',
+            curve_fit_equation_size=13,
+        ),
+    )
+    ax = axes_of(figure)
+    figure.canvas.draw()
+    equations = [text for text in ax.texts if text.get_text().startswith('y =')]
+    band_bounds = ax.collections[0].get_datalim(ax.transData)
+
+    assert len(ax.collections) == 1
+    assert ax.get_ylim()[0] <= band_bounds.y0
+    assert ax.get_ylim()[1] >= band_bounds.y1
+    assert len(equations) == 1
+    assert equations[0].get_position() == pytest.approx((0.02, 0.98))
+    assert equations[0].get_fontsize() == 13
+    assert equations[0].get_fontfamily() == ['DejaVu Sans']
+    assert any('S2: at least 3 points' in text.get_text() for text in ax.texts)
+
+
+def test_confidence_band_can_be_limited_to_selected_series() -> None:
+    dataset = Dataset(
+        samples=(),
+        series=(
+            XYSeries(
+                'S1',
+                (XYPoint(0.0, 1.0), XYPoint(1.0, 2.0), XYPoint(2.0, 2.8), XYPoint(3.0, 4.1)),
+            ),
+            XYSeries(
+                'S2',
+                (XYPoint(0.0, 4.0), XYPoint(1.0, 5.2), XYPoint(2.0, 6.0), XYPoint(3.0, 7.3)),
+            ),
+        ),
+    )
+    figure = plot_dataset(
+        dataset,
+        PlotConfig(
+            chart='scatter',
+            curve_fit_enabled=True,
+            curve_fit_selected_only=True,
+            curve_fit_selected_series=('S2',),
+        ),
+    )
+    ax = axes_of(figure)
+    fit_lines = [line for line in ax.lines if line.get_linestyle() == '--']
+    equation_text = [text.get_text() for text in ax.texts if 'y =' in text.get_text()]
+
+    assert len(ax.collections) == 1
+    assert len(fit_lines) == 2
+    assert tuple(ax.collections[0].get_facecolor()[0][:3]) == pytest.approx(colors.to_rgb(fit_lines[1].get_color()))
+    assert len(equation_text) == 1
+    assert equation_text[0].startswith('y = ')
+
+
+def test_scatter_curve_fit_is_opt_in(scatter_dataset: Dataset) -> None:
+    figure = plot_dataset(scatter_dataset, PlotConfig(chart='scatter'))
+
+    assert len(axes_of(figure).collections) == 0
+    assert not any(text.get_text().startswith('y =') for text in axes_of(figure).texts)
 
 
 def replicate_point_lines(figure: Figure, point_type: PointType = DEFAULT_POINT_TYPE) -> list[Line2D]:

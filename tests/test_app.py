@@ -926,6 +926,50 @@ def test_the_scatter_controls_appear_only_for_a_scatter_plot(app: GraphPadApp) -
     assert not app.xy_frame.winfo_manager()
 
 
+def test_curve_fit_controls_update_and_sync_scatter_settings(app: GraphPadApp) -> None:
+    app.chart_var.set('Scatter plot')
+    app._update_chart()
+    app.curve_fit_enabled_var.set(True)
+    app.curve_fit_model_var.set('Polynomial')
+    app.curve_fit_degree_var.set('4')
+    app.curve_fit_confidence_var.set('99.5')
+    app.curve_fit_show_equation_var.set(False)
+    app.curve_fit_equation_position_var.set('Top-left')
+    app.curve_fit_equation_font_var.set('Calibri')
+    app.curve_fit_equation_size_var.set('12')
+    app._update_curve_fit()
+
+    assert app.state.config.curve_fit_enabled is True
+    assert app.state.config.curve_fit_model == 'polynomial'
+    assert app.state.config.curve_fit_degree == 4
+    assert app.state.config.curve_fit_confidence == pytest.approx(99.5)
+    assert app.state.config.curve_fit_show_equation is False
+    assert app.state.config.curve_fit_equation_position == 'top-left'
+    assert app.state.config.curve_fit_equation_font == 'Calibri'
+    assert app.state.config.curve_fit_equation_size == 12
+
+    app._sync_from_state()
+
+    assert app.curve_fit_confidence_var.get() == '99.5'
+    assert app.curve_fit_equation_font_var.get() == 'Calibri'
+    assert app.curve_fit_equation_size_var.get() == '12'
+
+
+def test_selected_only_confidence_band_tracks_highlighted_series(blank_app: GraphPadApp) -> None:
+    _scatter(blank_app)
+    names = blank_app.state.series_names
+    blank_app._select_row(0)
+    blank_app.curve_fit_enabled_var.set(True)
+    blank_app.curve_fit_selected_only_var.set(True)
+    blank_app._update_curve_fit()
+
+    assert blank_app.state.config.curve_fit_selected_series == (names[0],)
+
+    blank_app._select_row(1)
+
+    assert blank_app.state.config.curve_fit_selected_series == (names[1],)
+
+
 def test_a_chooser_entry_carries_its_row_number() -> None:
     """The entries are read rather than counted, so the number has to survive the round trip."""
     from src.ui.fields import choice_index
