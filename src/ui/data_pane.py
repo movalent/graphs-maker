@@ -334,6 +334,7 @@ class DataPaneMixin(_AppBase):
             return
         where = 'index' if direction == 'column' and x == INDEX_X else f'{where_word(direction)} {x}'
         self.sheet_caption.configure(text=f'x values: {where}    y series: columns {columns}')
+
     def _on_sheet_changed(self) -> None:
         """Re-read the sheet for the columns and x row the user just picked in the preview."""
         if self.syncing or self.input_path is None:
@@ -342,6 +343,7 @@ class DataPaneMixin(_AppBase):
             self._apply_scatter_selection()
         else:
             self._apply_column_selection()
+
     def _update_xy(self, _event: object = None) -> None:
         """Re-read the sheet as a scatter plot using the rows and columns that were named.
 
@@ -372,6 +374,15 @@ class DataPaneMixin(_AppBase):
             self._report_no_x_values()
             return
         series_row = first_of(parse_columns(self.series_var.get()))
+        scatter_layout = detect_scatter_layout(table)
+        grouped_layout = (
+            scatter_layout
+            if scatter_layout is not None
+            and scatter_layout.series_columns
+            and scatter_layout.x_direction == direction
+            and scatter_layout.x_index == x_at
+            else None
+        )
         try:
             series, x_label = read_xy(
                 table,
@@ -379,8 +390,15 @@ class DataPaneMixin(_AppBase):
                 x_column=x_at if direction == 'column' else None,
                 y_columns=tuple(y),
                 series_row=None if series_row is None else series_row - 1,
-                first_data_row=self._first_xy_row(table, direction, x_at, series_row),
+                first_data_row=(
+                    grouped_layout.first_data_row
+                    if grouped_layout is not None
+                    else self._first_xy_row(table, direction, x_at, series_row)
+                ),
                 path=self.input_path,
+                series_columns=None if grouped_layout is None else grouped_layout.series_columns,
+                series_names=None if grouped_layout is None else grouped_layout.series_names,
+                x_label_row=None if grouped_layout is None else grouped_layout.x_label_row,
             )
         except (OSError, zipfile.BadZipFile, ExcelLayoutError, ValueError) as error:
             messagebox.showerror('Cannot read the sheet', str(error), parent=self.root)
@@ -402,6 +420,7 @@ class DataPaneMixin(_AppBase):
         self.sheet.set_selection(self.state.config.x_columns, self.state.config.x_row)
         self._describe_scatter_selection()
         self.redraw()
+
     def _report_no_x_values(self) -> None:
         """Say that the sheet has no x values to plot against, and how to name them.
 

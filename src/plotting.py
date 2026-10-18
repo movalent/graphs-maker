@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, replace
+from statistics import fmean, stdev
 from typing import Literal, cast
 
 from matplotlib import font_manager, rcParams
@@ -37,6 +38,7 @@ from src.models import (
     PlotConfig,
     ReferenceLine,
     Sample,
+    XYPoint,
     XYSeries,
 )
 
@@ -427,6 +429,23 @@ def _apply_scatter_value_axis(ax: Axes, series: Sequence[XYSeries], dataset: Dat
     if config.y_major_step:
         ax.yaxis.set_major_locator(MultipleLocator(config.y_major_step))
     _finish_value_axis(ax, dataset, config, horizontal=False)
+
+
+def _summarize_scatter_series(series: XYSeries) -> tuple[XYSeries, tuple[float, ...]]:
+    """Return one mean point and sample SD per x value in a scatter series."""
+    replicates: dict[float, list[float]] = {}
+    rows: dict[float, int] = {}
+    for point in series.points:
+        replicates.setdefault(point.x, []).append(point.y)
+        rows.setdefault(point.x, point.row)
+    x_values = tuple(replicates)
+    means = tuple(fmean(replicates[x_value]) for x_value in x_values)
+    deviations = tuple(stdev(replicates[x_value]) if len(replicates[x_value]) > 1 else 0.0 for x_value in x_values)
+    summary = XYSeries(
+        name=series.name,
+        points=tuple(XYPoint(x_value, mean, rows[x_value]) for x_value, mean in zip(x_values, means, strict=True)),
+    )
+    return summary, deviations
 
 
 def _apply_axis_line_width(ax: Axes, config: PlotConfig) -> None:
@@ -1556,16 +1575,15 @@ def _apply_distribution_value_axis(
 
 
 def plot_scatter(dataset: Dataset, config: PlotConfig | None = None) -> Figure:
-    """Draw the paired x and y values of a scatter sheet as Prism style points.
+    """Draw one mean Y and standard deviation per X as Prism style points.
 
-    One series is drawn per y column, each in its own palette colour and each named in the
-    legend, which is the way a bar graph names its samples. A click on a point selects the
-    series it belongs to, because every point carries its series name. Chosen series may use
-    the optional right-side value axis.
+    Replicate Y values sharing an X are summarized to a mean with sample-standard-deviation
+    error bars. One series is drawn per Group/Condition, each in its own palette colour and
+    named in the legend. A click on its mean or error bars selects that series. Chosen series
+    may use the optional right-side value axis.
 
-    A scatter plot has no bars, so it has no mean, no error bars and no zero baseline: the
-    axis is framed around the points instead, because a point has no length that a baseline
-    would have to start from.
+    A scatter plot has no bars or zero baseline, so the axis is framed around the summarized
+    means and their error bars.
 
     Args:
         dataset: The parsed experiment, whose ``series`` hold the points.
@@ -1576,7 +1594,10 @@ def plot_scatter(dataset: Dataset, config: PlotConfig | None = None) -> Figure:
 
     """
     settings = config or PlotConfig()
-    series = dataset.ordered_series(settings.series_order)
+    raw_series = dataset.ordered_series(settings.series_order)
+    summaries = tuple(_summarize_scatter_series(one) for one in raw_series)
+    series = tuple(summary for summary, _deviations in summaries)
+    deviations = tuple(deviations for _summary, deviations in summaries)
     if not series or not dataset.points:
         return _empty_figure(settings)
 
@@ -1596,27 +1617,48 @@ def plot_scatter(dataset: Dataset, config: PlotConfig | None = None) -> Figure:
     fit_axis_bounds: dict[Axes, list[float]] = {}
 
     connected = _connected_series(names, settings)
-    for one, color in zip(series, colors, strict=True):
+    for one, errors, color in zip(series, deviations, colors, strict=True):
         target_ax = secondary_ax if one.name in secondary_names and secondary_ax is not None else ax
         marker, fill = _point_marks(settings, one.name, color)
-        line = target_ax.plot(
-            [point.x for point in one.points],
-            [point.y for point in one.points],
-            linestyle='-' if one.name in connected else 'none',
-            # The line is given the series colour explicitly. Left to itself matplotlib picks
-            # the next colour off its cycle, which is not the colour of the points it joins,
-            # and a traced series then reads as a different series from the one it traces.
-            color=color,
-            marker=marker,
-            markersize=size,
-            markerfacecolor=fill,
-            markeredgecolor=color,
-            markeredgewidth=width,
-            zorder=3,
-        )
-        # Every point carries the series name, so a click on any of them selects the series
-        # it belongs to in the same way a click on a bar selects its sample.
-        tag_artists(fig, line, [one.name])
+        x_values = [point.x for point in one.points]
+        y_values = [point.y for point in one.points]
+        if any(errors):
+            drawn = target_ax.errorbar(
+                x_values,
+                y_values,
+                yerr=errors,
+                fmt=marker,
+                linestyle='-' if one.name in connected else 'none',
+                color=color,
+                ecolor=ERROR_COLOR,
+                markersize=size,
+                markerfacecolor=fill,
+                markeredgecolor=color,
+                markeredgewidth=width,
+                elinewidth=width,
+                capsize=3,
+                capthick=width,
+                zorder=3,
+            )
+            data_line, cap_lines, bar_lines = drawn.lines
+            artists = ([data_line] if data_line is not None else []) + list(cap_lines) + list(bar_lines)
+            tag_artists(fig, artists, [one.name] * len(artists))
+        else:
+            line = target_ax.plot(
+                x_values,
+                y_values,
+                linestyle='-' if one.name in connected else 'none',
+                # The line is given the series colour explicitly. Left to itself matplotlib picks
+                # the next colour off its cycle, which is not the colour of the points it joins.
+                color=color,
+                marker=marker,
+                markersize=size,
+                markerfacecolor=fill,
+                markeredgecolor=color,
+                markeredgewidth=width,
+                zorder=3,
+            )
+            tag_artists(fig, line, [one.name])
 
     _apply_scatter_value_axis(ax, primary_series, dataset, settings)
     if secondary_ax is not None:

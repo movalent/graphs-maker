@@ -38,21 +38,19 @@ def real_dataset() -> Dataset:
 
 
 def test_reads_every_measured_column(real_dataset: Dataset) -> None:
-    assert len(real_dataset.samples) == 8
+    assert len(real_dataset.samples) == 9
 
 
 def test_detects_replicate_rows_and_value_label(real_dataset: Dataset) -> None:
     assert real_dataset.y_label == 'Conc.1, ng/uL'
-    # The second replicate label has deliberate trailing 'l' padding to stress the preview
-    # column layout. We only assert the meaningful prefix here.
     assert real_dataset.replicate_labels[0] == 'Conc.1, ng/uL'
-    assert real_dataset.replicate_labels[1].startswith('Conc.2, ng/uL')
+    assert real_dataset.replicate_labels[1] == 'Conc.2, ng/uL'
+    assert real_dataset.replicate_labels[2] == 'Conc.3, ng/uL'
 
 
-def test_forward_fills_group_labels_across_columns(real_dataset: Dataset) -> None:
-    assert real_dataset.groups == ('WT Phi29', 'Phi29-XT', 'EquiPhi29', 'Saiyan 1', 'Saitan 2')
-    assert len(real_dataset.group_of('WT Phi29')) == 4
-    assert len(real_dataset.group_of('Phi29-XT')) == 1
+def test_blank_group_row_leaves_updated_bar_samples_ungrouped(real_dataset: Dataset) -> None:
+    assert real_dataset.groups == ()
+    assert all(not sample.group for sample in real_dataset.samples)
 
 
 def test_sample_names_prefer_condition_then_group(real_dataset: Dataset) -> None:
@@ -62,17 +60,16 @@ def test_sample_names_prefer_condition_then_group(real_dataset: Dataset) -> None
         'EquiPhi29',
         'Saiyan 1',
         'Saitan 2',
+        'Phi29 Mut8',
     ]
 
 
 def test_statistics_match_the_sheet(real_dataset: Dataset) -> None:
     means = [sample.mean for sample in real_dataset.samples]
-    # Low pDNA: (120.224 + 111) / 2 = 115.612. The 120.224 is a deliberate text-typed
-    # high-precision value in the fixture (also tested in test_app.py and test_excel_reader.py).
-    assert means == pytest.approx([205.0, 95.0, 107.5, 115.612, 565.0, 605.0, 802.5, 497.5])
-    assert all(sample.n == 2 for sample in real_dataset.samples)
-    assert real_dataset.samples[0].sd == pytest.approx(7.0710678, rel=1e-6)
-    assert real_dataset.samples[0].sem == pytest.approx(5.0, rel=1e-6)
+    assert means == pytest.approx([208.0, 96.75, 110.5, 119.056, 561.5, 598.75, 798.25, 494.0, 153.3])
+    assert all(sample.n == 4 for sample in real_dataset.samples)
+    assert real_dataset.samples[0].sd == pytest.approx(7.257180, rel=1e-6)
+    assert real_dataset.samples[0].sem == pytest.approx(3.628590, rel=1e-6)
 
 
 def test_skips_leading_empty_rows(tmp_path: Path) -> None:
@@ -284,15 +281,15 @@ def test_reader_emits_no_warning_for_the_real_file(real_dataset: Dataset) -> Non
 
 def test_reading_every_column_is_the_default(real_dataset: Dataset) -> None:
     """Naming every column must give exactly the same dataset as naming none."""
-    every = read_dataset(INPUT_FILE, columns=tuple(range(1, 9)))
+    every = read_dataset(INPUT_FILE, columns=tuple(range(1, 10)))
     assert [sample.name for sample in every.samples] == [sample.name for sample in real_dataset.samples]
     assert [sample.values for sample in every.samples] == [sample.values for sample in real_dataset.samples]
 
 
 def test_a_left_out_column_produces_no_sample(real_dataset: Dataset) -> None:
-    """One column ticked off in the data preview must leave the graph one bar shorter."""
+    """Columns ticked off in the data preview must leave the graph two bars shorter."""
     fewer = read_dataset(INPUT_FILE, columns=(1, 2, 3, 4, 5, 6, 7))
-    assert len(fewer.samples) == len(real_dataset.samples) - 1
+    assert len(fewer.samples) == len(real_dataset.samples) - 2
     assert 'Saitan 2' not in {sample.name for sample in fewer.samples}
 
 
@@ -313,20 +310,27 @@ def test_the_label_column_cannot_be_plotted() -> None:
     with pytest.raises(ExcelLayoutError, match='outside the sheet'):
         read_dataset(INPUT_FILE, columns=(0, 1))
 
-
-
 SCATTER_FILE = Path(__file__).resolve().parents[1] / 'input' / 'Conc_scatter_26-09-27.xlsx'
 
 
-def test_a_tidy_sheet_is_recognised_as_a_scatter_layout() -> None:
-    """The common shape draws itself, so the user is not asked to name its parts."""
+def test_grouped_xy_sheet_is_recognised_as_a_scatter_layout() -> None:
+    """Merged Group/Condition headers identify replicate columns for each XY series."""
     found = detect_scatter_layout(read_table(SCATTER_FILE))
     assert found == ScatterLayout(
         x_direction='column',
         x_index=0,
-        y_columns=(1, 2, 3, 4, 5, 6, 7, 8),
-        series_row=1,
-        first_data_row=2,
+        y_columns=tuple(range(1, 11)),
+        series_row=None,
+        first_data_row=3,
+        x_label_row=2,
+        series_columns=((1, 2), (3, 4), (5, 6), (7, 8), (9, 10)),
+        series_names=(
+            'WT Phi29: Control',
+            'WT Phi29: 42C',
+            'WT Phi29: Low Mg',
+            'WT Phi29: Low pDNA',
+            'Phi29-XT: Standard',
+        ),
     )
 
 
@@ -341,20 +345,78 @@ def test_the_real_bar_sheet_offers_no_scatter_layout() -> None:
 
 
 def test_a_detected_layout_reads_the_points_it_names(tmp_path: Path) -> None:
-    """The names taken from the series row are the ones the legend has to show."""
-    found = detect_scatter_layout(read_table(SCATTER_FILE))
+    """Replicates share a Group/Condition series and keep their repeated X values."""
+    table = read_table(SCATTER_FILE)
+    found = detect_scatter_layout(table)
     assert found is not None
     series, x_label = read_xy(
-        read_table(SCATTER_FILE),
+        table,
         x_column=found.x_index,
         y_columns=found.y_columns,
         series_row=found.series_row,
         first_data_row=found.first_data_row,
         path=SCATTER_FILE,
+        series_columns=found.series_columns,
+        series_names=found.series_names,
+        x_label_row=found.x_label_row,
     )
     assert x_label == 'X'
-    assert [one.name for one in series][:4] == ['Control', '42C', 'Low Mg', 'Low pDNA']
-    assert all(one.n == 3 for one in series)
+    assert [one.name for one in series] == [
+        'WT Phi29: Control',
+        'WT Phi29: 42C',
+        'WT Phi29: Low Mg',
+        'WT Phi29: Low pDNA',
+        'Phi29-XT: Standard',
+    ]
+    assert all(one.n == 6 for one in series)
+    assert [(point.x, point.y) for point in series[0].points] == [
+        (50.0, 200.0),
+        (50.0, 205.0),
+        (100.0, 300.0),
+        (100.0, 295.0),
+        (200.0, 400.0),
+        (200.0, 389.0),
+    ]
+
+
+def test_grouped_scatter_keeps_uneven_y_replicates_per_x(tmp_path: Path) -> None:
+    """A different number of Y values at each X still contributes every available point."""
+    book = write_book(
+        tmp_path,
+        [
+            ['Group', 'WT', None, None],
+            ['Condition', 'Control', None, None],
+            ['X', 'Y1', 'Y2', 'Y3'],
+            [10.0, 1.0, 2.0, None],
+            [20.0, 3.0, None, 5.0],
+            [30.0, 4.0, 6.0, 8.0],
+        ],
+    )
+    table = read_table(book)
+    found = detect_scatter_layout(table)
+    assert found is not None
+    assert found.series_names == ('WT: Control',)
+    with pytest.warns(ExcelLayoutWarning, match='without both'):
+        series, x_label = read_xy(
+            table,
+            x_column=found.x_index,
+            y_columns=found.y_columns,
+            first_data_row=found.first_data_row,
+            series_columns=found.series_columns,
+            series_names=found.series_names,
+            x_label_row=found.x_label_row,
+            path=book,
+        )
+    assert x_label == 'X'
+    assert [(point.x, point.y) for point in series[0].points] == [
+        (10.0, 1.0),
+        (10.0, 2.0),
+        (20.0, 3.0),
+        (20.0, 5.0),
+        (30.0, 4.0),
+        (30.0, 6.0),
+        (30.0, 8.0),
+    ]
 
 
 def test_the_series_row_saves_a_repeated_name_from_the_header() -> None:

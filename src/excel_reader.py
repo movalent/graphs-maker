@@ -69,18 +69,21 @@ MIN_SCATTER_VALUES = 2
 class ScatterLayout:
     """Where a scatter sheet keeps its x values, its y series and their names.
 
-    A sheet that carries no ``Group`` or ``Condition`` markers cannot be read as a bar
-    graph at all, so a scatter plot is the only reading it has. This works out the common
-    shapes of such a sheet, so the graph can be drawn without the user naming anything, and
-    so the window can say plainly when a sheet is none of them.
+    The reader recognizes ordinary tidy and GraphPad-style XY sheets as well as tidy XY
+    sheets whose Y replicate columns share Group/Condition headers. This lets the graph be
+    drawn without the user naming the rows and columns by hand.
 
     Attributes:
         x_direction: ``'column'`` when the x values run down a column, one per data row, or
             ``'row'`` when they run across a row, one above each plotted column.
         x_index: The worksheet column or row holding the x values, zero based.
-        y_columns: Columns holding the y values, one series each, zero based.
-        series_row: Row naming each series, or ``None`` to name them from the header row.
+        y_columns: Columns holding the y values, zero based.
+        series_row: Row naming each series in a standard XY table, or ``None`` to name them
+            from the header row or use ``series_names``.
         first_data_row: First row that may hold a point.
+        x_label_row: Row naming the x values when it differs from the first row.
+        series_columns: Y columns grouped into one series, for replicate columns.
+        series_names: Names corresponding to ``series_columns``.
 
     """
 
@@ -89,6 +92,9 @@ class ScatterLayout:
     y_columns: tuple[int, ...]
     series_row: int | None
     first_data_row: int
+    x_label_row: int | None = None
+    series_columns: tuple[tuple[int, ...], ...] = ()
+    series_names: tuple[str, ...] = ()
 
 
 def detect_layout(table: pd.DataFrame, path: Path) -> SheetLayout:
@@ -117,15 +123,15 @@ def detect_layout(table: pd.DataFrame, path: Path) -> SheetLayout:
     return SheetLayout(group_row=group_row, condition_row=condition_row, first_data_row=first_data_row)
 
 
-
 def detect_scatter_layout(table: pd.DataFrame) -> ScatterLayout | None:
     """Work out where a scatter sheet keeps its x values and its y series.
 
-    Only the two shapes that need no explanation from the user are recognised, because a
-    wrong guess drawn as a graph is worse than no guess at all. A tidy dataset keeps its
-    x values in the first column, so that column is checked first and everything to its
-    right that holds numbers becomes a series. A GraphPad XY table keeps its x values in
-    its first row, one above each plotted column, and that is checked second.
+    Only layouts whose markers make their meaning clear are recognised, because a wrong
+    guess drawn as a graph is worse than no guess at all. A tidy dataset keeps its x values
+    in the first column, so that column is checked first and everything to its right that
+    holds numbers becomes a series. A merged Group/Condition header can identify multiple
+    Y replicate columns for one series. A GraphPad XY table keeps its x values in its first
+    row, one above each plotted column, and that is checked last.
 
     Anything else returns ``None``, which is the window's cue to ask rather than draw.
 
@@ -139,10 +145,11 @@ def detect_scatter_layout(table: pd.DataFrame) -> ScatterLayout | None:
     rows, columns = table.shape
     if rows < MIN_SCATTER_VALUES or columns < 2:
         return None
+    grouped_layout = _detect_grouped_scatter_layout(table)
+    if grouped_layout is not None:
+        return grouped_layout
     if _numbers_below(table, 0) >= MIN_SCATTER_VALUES:
-        y_columns = tuple(
-            column for column in range(1, columns) if _numbers_below(table, column) >= MIN_SCATTER_VALUES
-        )
+        y_columns = tuple(column for column in range(1, columns) if _numbers_below(table, column) >= MIN_SCATTER_VALUES)
         if y_columns:
             series_row = _first_text_row(table, y_columns)
             first_data_row = 1 if series_row is None else series_row + 1
@@ -154,9 +161,7 @@ def detect_scatter_layout(table: pd.DataFrame) -> ScatterLayout | None:
                 first_data_row=first_data_row,
             )
     if _numbers_in_row(table, 0) >= MIN_SCATTER_VALUES:
-        y_columns = tuple(
-            column for column in range(1, columns) if _numbers_below(table, column) >= MIN_SCATTER_VALUES
-        )
+        y_columns = tuple(column for column in range(1, columns) if _numbers_below(table, column) >= MIN_SCATTER_VALUES)
         if y_columns:
             series_row = _first_text_row(table, y_columns)
             first_data_row = 1 if series_row is None else series_row + 1
@@ -168,6 +173,56 @@ def detect_scatter_layout(table: pd.DataFrame) -> ScatterLayout | None:
                 first_data_row=first_data_row,
             )
     return None
+
+
+def _detect_grouped_scatter_layout(table: pd.DataFrame) -> ScatterLayout | None:
+    """Detect a tidy XY sheet whose Y replicate columns share Group/Condition headers."""
+    rows, columns = table.shape
+    row_labels = [cell_text(value) for value in table.iloc[:, 0].tolist()]
+    group_row = _find_marker(row_labels, GROUP_MARKER)
+    if group_row is None:
+        return None
+    condition_row = group_row + 1
+    x_label_row = group_row + 2
+    if condition_row >= rows or x_label_row >= rows:
+        return None
+    if not _is_marker(row_labels[condition_row], CONDITION_MARKER):
+        return None
+    if not cell_text(table.iloc[x_label_row, 0]):
+        return None
+
+    first_data_row = next(
+        (row for row in range(x_label_row + 1, rows) if cell_number(table.iloc[row, 0]) is not None),
+        None,
+    )
+    if first_data_row is None or _numbers_below(table, 0, first_data_row) < MIN_SCATTER_VALUES:
+        return None
+    y_columns = tuple(column for column in range(1, columns) if _numbers_below(table, column, first_data_row) > 0)
+    if not y_columns:
+        return None
+
+    groups = _forward_filled(_column_text(table, group_row))
+    conditions = _forward_filled(_column_text(table, condition_row))
+    column_groups: dict[tuple[str, str], list[int]] = {}
+    for column in y_columns:
+        key = (groups[column - 1], conditions[column - 1])
+        column_groups.setdefault(key, []).append(column)
+
+    series_columns = tuple(tuple(group_columns) for group_columns in column_groups.values())
+    series_names = tuple(
+        f'{group}: {condition}' if group and condition else group or condition or f'Series {index + 1}'
+        for index, (group, condition) in enumerate(column_groups)
+    )
+    return ScatterLayout(
+        x_direction='column',
+        x_index=0,
+        y_columns=y_columns,
+        series_row=None,
+        first_data_row=first_data_row,
+        x_label_row=x_label_row,
+        series_columns=series_columns,
+        series_names=series_names,
+    )
 
 
 def _numbers_below(table: pd.DataFrame, column: int, start: int = 1) -> int:
@@ -372,9 +427,7 @@ def read_dataset(
         # is given a blank group to read. Without this the samples are built by walking the
         # group names, and a blank list would read no columns at all.
         group_names = [''] * max(table.shape[1] - 1, 0)
-    condition_names = (
-        _column_text(table, chosen.condition_row) if chosen.condition_row is not None else None
-    )
+    condition_names = _column_text(table, chosen.condition_row) if chosen.condition_row is not None else None
     replicate_labels = tuple(label for label in row_labels[chosen.first_data_row :] if label)
 
     preferred_names = _preferred_names(group_names, condition_names)
@@ -604,6 +657,9 @@ def read_xy(
     header_row: int = 0,
     first_data_row: int = 1,
     path: Path | None = None,
+    series_columns: tuple[tuple[int, ...], ...] | None = None,
+    series_names: tuple[str, ...] | None = None,
+    x_label_row: int | None = None,
 ) -> tuple[tuple[XYSeries, ...], str]:
     """Pair the x values with the y columns the user pointed at.
 
@@ -621,11 +677,16 @@ def read_xy(
         table: The trimmed worksheet table.
         x_row: Row running across the sheet that holds the x values, one per plotted column.
         x_column: Column running down the sheet that holds the x values, one per data row.
-        y_columns: Columns holding the y values, one series each.
+        y_columns: Columns holding the y values, zero based. By default each is a series;
+            ``series_columns`` can combine several columns into one series.
         series_row: Row naming each series, or ``None`` to name them from ``header_row``.
         header_row: Row holding the series names when ``series_row`` is not given.
         first_data_row: First row that may hold a point.
         path: Source file, used for warning messages.
+        series_columns: Optional groups of Y columns that form one series, with each column
+            contributing its measurements as points to the same series.
+        series_names: Display names for ``series_columns``.
+        x_label_row: Row holding the x-axis label when it is not in the first row.
 
     Returns:
         The series, and the text naming the x axis.
@@ -644,52 +705,71 @@ def read_xy(
         raise ExcelLayoutError('Choose at least one column to plot on the y axis.')
     if x_row is not None and not 0 <= x_row < rows:
         raise ExcelLayoutError(f'Row {x_row + 1} of {source.name} is outside the sheet.')
+    if x_label_row is not None and not 0 <= x_label_row < rows:
+        raise ExcelLayoutError(f'Row {x_label_row + 1} of {source.name} is outside the sheet.')
     for column in y_columns:
         if not 0 <= column < columns:
             raise ExcelLayoutError(f'Column {column + 1} of {source.name} is outside the sheet.')
+    name_row = series_row if series_row is not None else header_row
+    series_specs: tuple[tuple[str, tuple[int, ...]], ...]
+    if series_columns is None:
+        if series_names is not None:
+            raise ExcelLayoutError('Series names require grouped y columns.')
+        series_specs = tuple(
+            (cell_text(table.iloc[name_row, column]) if 0 <= name_row < rows else '', (column,)) for column in y_columns
+        )
+    else:
+        if series_names is None or len(series_columns) != len(series_names):
+            raise ExcelLayoutError('Each grouped set of y columns needs one series name.')
+        grouped_y_columns = {column for columns_in_series in series_columns for column in columns_in_series}
+        if any(column not in range(columns) for column in grouped_y_columns):
+            raise ExcelLayoutError(f'A grouped y column is outside the {source.name} sheet.')
+        if any(column not in grouped_y_columns for column in y_columns):
+            raise ExcelLayoutError('Every selected y column must belong to a grouped series.')
+        selected_columns = set(y_columns)
+        series_specs = tuple(
+            (name, tuple(column for column in group if column in selected_columns))
+            for name, group in zip(series_names, series_columns, strict=True)
+            if any(column in selected_columns for column in group)
+        )
 
     # The x axis is named by the heading the sheet writes above the x values. A row of x
     # values is headed by a cell in the first column, and a column of them by the cell at the
     # top of that column, so the name is read from the same corner the x values start at.
-    name_row = series_row if series_row is not None else header_row
-    x_label = cell_text(table.iloc[0, x_column]) if x_column is not None else cell_text(table.iloc[0, 0])
+    if x_label_row is not None and x_column is not None:
+        x_label = cell_text(table.iloc[x_label_row, 0])
+    else:
+        x_label = cell_text(table.iloc[0, x_column]) if x_column is not None else cell_text(table.iloc[0, 0])
     x_label = x_label or 'x'
 
     used: set[str] = set()
     series: list[XYSeries] = []
-    for column in y_columns:
-        name = cell_text(table.iloc[name_row, column]) if 0 <= name_row < rows else ''
+    for name, columns_in_series in series_specs:
         points: list[XYPoint] = []
-        skipped = 0
-        if x_column is not None:
-            for row in range(first_data_row, rows):
-                x_value = cell_number(table.iloc[row, x_column])
+        skipped_by_column = dict.fromkeys(columns_in_series, 0)
+        for row in range(first_data_row, rows):
+            for column in columns_in_series:
+                if x_column is not None:
+                    x_value = cell_number(table.iloc[row, x_column])
+                else:
+                    assert x_row is not None
+                    x_value = cell_number(table.iloc[x_row, column])
                 y_value = cell_number(table.iloc[row, column])
                 if x_value is None or y_value is None:
-                    skipped += 1
+                    skipped_by_column[column] += 1
                     continue
                 points.append(XYPoint(x=x_value, y=y_value, row=row))
-        elif x_row is not None:
-            # The x values run across the sheet, so each plotted column pairs the x above it
-            # with the values below it, and the column index is the point's identity.
-            x_value = cell_number(table.iloc[x_row, column])
-            if x_value is not None:
-                for row in range(first_data_row, rows):
-                    y_value = cell_number(table.iloc[row, column])
-                    if y_value is None:
-                        skipped += 1
-                        continue
-                    points.append(XYPoint(x=x_value, y=y_value, row=row))
-            else:
-                skipped += 1
         if not points:
             continue
-        if skipped:
+        for column, skipped in skipped_by_column.items():
+            if not skipped:
+                continue
             warnings.warn(
                 f'Column {column + 1} of {source.name} has {skipped} row(s) without both an x and a y value.',
                 ExcelLayoutWarning,
                 stacklevel=2,
             )
-        series.append(XYSeries(name=_unique_name(name, f'Series {column + 1}', used), points=tuple(points)))
+        fallback = f'Series {columns_in_series[0] + 1}'
+        series.append(XYSeries(name=_unique_name(name, fallback, used), points=tuple(points)))
 
     return tuple(series), x_label

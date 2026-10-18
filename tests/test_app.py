@@ -2799,19 +2799,26 @@ def test_a_scatter_sheet_is_drawn_without_being_asked_about(
     blank_app._update_chart()
     blank_app.root.update()
     assert titles == []
-    assert len(blank_app.state.dataset.series) == 8
+    assert len(blank_app.state.dataset.series) == 5
+    assert all(one.n == 6 for one in blank_app.state.dataset.series)
     assert len(blank_app.canvas.figure.axes) == 1
 
 
-def test_a_scatter_sheet_names_its_series_from_the_conditions_row(blank_app: GraphPadApp) -> None:
-    """Five columns headed Standard have to be told apart, or the legend repeats itself."""
+def test_a_scatter_sheet_names_its_series_from_group_and_condition(blank_app: GraphPadApp) -> None:
+    """Both merged header rows are included in the series names."""
     assert blank_app.load_file(SCATTER_FILE)
     blank_app.chart_var.set('Scatter plot')
     blank_app._update_chart()
     blank_app.root.update()
     names = [one.name for one in blank_app.state.dataset.series]
-    assert names[:4] == ['Control', '42C', 'Low Mg', 'Low pDNA']
-    assert blank_app.series_var.get() == '2'
+    assert names == [
+        'WT Phi29: Control',
+        'WT Phi29: 42C',
+        'WT Phi29: Low Mg',
+        'WT Phi29: Low pDNA',
+        'Phi29-XT: Standard',
+    ]
+    assert blank_app.series_var.get() == ''
 
 
 def test_a_sheet_with_no_x_values_says_so(
@@ -2855,7 +2862,7 @@ def test_the_x_values_can_be_named_by_hand(blank_app: GraphPadApp) -> None:
     blank_app.chart_var.set('Scatter plot')
     blank_app._update_chart()
     blank_app.root.update()
-    assert len(blank_app.state.dataset.series) == 8
+    assert len(blank_app.state.dataset.series) == 5
     blank_app.x_direction_var.set('Column')
     blank_app.x_var.set('1')
     # The columns to plot are chosen in the preview rather than typed on the panel, and
@@ -2974,13 +2981,13 @@ def test_a_scatter_sheet_names_its_x_values_as_the_index(blank_app: GraphPadApp)
 
 
 def test_a_scatter_sheet_numbers_its_series_from_one(blank_app: GraphPadApp) -> None:
-    """The series are renumbered with the description gone, so the grid holds eight columns."""
+    """Every replicate column can be selected while the graph combines them by condition."""
     assert blank_app.load_file(SCATTER_FILE)
     blank_app.chart_var.set('Scatter plot')
     blank_app._update_chart()
     blank_app.root.update()
-    assert blank_app.sheet.columns == (1, 2, 3, 4, 5, 6, 7, 8)
-    assert len(blank_app.state.dataset.series) == 8
+    assert blank_app.sheet.columns == tuple(range(1, 11))
+    assert len(blank_app.state.dataset.series) == 5
 
 
 def test_a_scatter_series_can_be_taken_off_the_graph(blank_app: GraphPadApp) -> None:
@@ -2991,8 +2998,9 @@ def test_a_scatter_series_can_be_taken_off_the_graph(blank_app: GraphPadApp) -> 
     blank_app.root.update()
     blank_app.sheet.toggle_column(1)
     blank_app.root.update()
-    assert blank_app.sheet.columns == (2, 3, 4, 5, 6, 7, 8)
-    assert len(blank_app.state.dataset.series) == 7
+    assert blank_app.sheet.columns == tuple(range(2, 11))
+    assert len(blank_app.state.dataset.series) == 5
+    assert blank_app.state.dataset.series[0].n == 3
 
 
 def test_the_caption_agrees_with_the_field_about_the_index(blank_app: GraphPadApp) -> None:
@@ -3012,15 +3020,15 @@ def test_the_preview_rounds_to_two_places_by_default(blank_app: GraphPadApp) -> 
     assert DEFAULT_DECIMALS == 2
     assert blank_app.load_file(SCATTER_FILE)
     assert blank_app.decimals_var.get() == '2'
-    row = _line_at(blank_app, COLUMN_HEADER_HEIGHT + 2.5 * CELL_HEIGHT)
+    row = _line_at(blank_app, COLUMN_HEADER_HEIGHT + 3.5 * CELL_HEIGHT)
     assert '50.00' in [text for _x, text in row]
-    assert '229.86' in [text for _x, text in row]
+    assert '235.69' in [text for _x, text in row]
 
 
 def test_a_whole_number_keeps_its_trailing_zeros(blank_app: GraphPadApp) -> None:
     """A fixed width is what makes the digits line up, so 200 is shown as 200.00."""
     assert blank_app.load_file(SCATTER_FILE)
-    row = _line_at(blank_app, COLUMN_HEADER_HEIGHT + 2.5 * CELL_HEIGHT)
+    row = _line_at(blank_app, COLUMN_HEADER_HEIGHT + 3.5 * CELL_HEIGHT)
     assert '200.00' in [text for _x, text in row]
     assert '200' not in [text for _x, text in row]
 
@@ -3030,8 +3038,8 @@ def test_the_number_of_places_can_be_chosen(blank_app: GraphPadApp) -> None:
     blank_app.decimals_var.set('4')
     blank_app._update_preview_decimals()
     blank_app.root.update()
-    row = _line_at(blank_app, COLUMN_HEADER_HEIGHT + 2.5 * CELL_HEIGHT)
-    assert '229.8625' in [text for _x, text in row]
+    row = _line_at(blank_app, COLUMN_HEADER_HEIGHT + 3.5 * CELL_HEIGHT)
+    assert '235.6851' in [text for _x, text in row]
 
 
 def test_no_places_can_be_asked_for(blank_app: GraphPadApp) -> None:
@@ -3039,8 +3047,8 @@ def test_no_places_can_be_asked_for(blank_app: GraphPadApp) -> None:
     blank_app.decimals_var.set('0')
     blank_app._update_preview_decimals()
     blank_app.root.update()
-    row = _line_at(blank_app, COLUMN_HEADER_HEIGHT + 2.5 * CELL_HEIGHT)
-    assert '230' in [text for _x, text in row]
+    row = _line_at(blank_app, COLUMN_HEADER_HEIGHT + 3.5 * CELL_HEIGHT)
+    assert '236' in [text for _x, text in row]
 
 
 def test_an_empty_field_shows_the_sheet_exactly(blank_app: GraphPadApp) -> None:
@@ -3049,8 +3057,8 @@ def test_an_empty_field_shows_the_sheet_exactly(blank_app: GraphPadApp) -> None:
     blank_app.decimals_var.set('')
     blank_app._update_preview_decimals()
     blank_app.root.update()
-    row = [text for _x, text in _line_at(blank_app, COLUMN_HEADER_HEIGHT + 2.5 * CELL_HEIGHT)]
-    assert any(text.startswith('229.8625409') for text in row)
+    row = [text for _x, text in _line_at(blank_app, COLUMN_HEADER_HEIGHT + 3.5 * CELL_HEIGHT)]
+    assert any(text.startswith('235.6851359') for text in row)
 
 
 def test_the_places_are_capped_at_something_readable(blank_app: GraphPadApp) -> None:

@@ -1622,6 +1622,40 @@ def test_a_scatter_plot_draws_one_line_per_series(scatter_dataset: Dataset) -> N
     assert list(ax.lines[0].get_ydata()) == [10.0, 12.0, 15.0]
 
 
+def test_scatter_replicates_are_drawn_as_mean_with_standard_deviation() -> None:
+    dataset = Dataset(
+        samples=(),
+        series=(
+            XYSeries(
+                'Replicates',
+                (
+                    XYPoint(1.0, 1.0, 1),
+                    XYPoint(2.0, 10.0, 2),
+                    XYPoint(1.0, 5.0, 3),
+                    XYPoint(2.0, 14.0, 4),
+                    XYPoint(2.0, 18.0, 5),
+                ),
+            ),
+        ),
+    )
+    figure = plot_dataset(dataset, PlotConfig(chart='scatter'))
+    ax = axes_of(figure)
+    data_line = next(line for line in ax.lines if line.get_marker() == POINT_MARKERS[DEFAULT_POINT_TYPE])
+    errorbar = next(container for container in ax.containers if hasattr(container, 'lines'))
+
+    assert list(data_line.get_xdata()) == [1.0, 2.0]
+    assert list(data_line.get_ydata()) == pytest.approx([3.0, 14.0])
+    segments = errorbar.lines[2][0].get_segments()
+    assert [(segment[0][0], segment[0][1], segment[1][0], segment[1][1]) for segment in segments] == pytest.approx(
+        [
+            (1.0, 3.0 - 2**0.5 * 2.0, 1.0, 3.0 + 2**0.5 * 2.0),
+            (2.0, 14.0 - 4.0, 2.0, 14.0 + 4.0),
+        ]
+    )
+    mapping = getattr(figure, 'sample_by_bar', {})
+    assert all(mapping[id(artist)] == 'Replicates' for artist in (*errorbar.lines[1], *errorbar.lines[2]))
+
+
 def test_a_scatter_point_selects_its_series(scatter_dataset: Dataset) -> None:
     """A click has to name the series, or a point is decoration nobody can use."""
     figure = plot_dataset(scatter_dataset, PlotConfig(chart='scatter'))
