@@ -1695,11 +1695,15 @@ def plot_scatter(dataset: Dataset, config: PlotConfig | None = None) -> Figure:
             except (ValueError, ArithmeticError) as error:
                 skipped_fits.append(f'{one.name}: {error}')
                 continue
-            if not settings.curve_fit_selected_only or one.name in settings.curve_fit_selected_series:
+            if settings.curve_fit_show_confidence_bars and (
+                not settings.curve_fit_selected_only or one.name in settings.curve_fit_selected_series
+            ):
                 target_ax.fill_between(fit.x, fit.lower, fit.upper, color=color, alpha=0.16, linewidth=0, zorder=1)
             target_ax.plot(fit.x, fit.y, color=color, linestyle='--', linewidth=1.2, zorder=2)
             fitted.append((one.name, color, fit))
-            if not settings.curve_fit_selected_only or one.name in settings.curve_fit_selected_series:
+            if settings.curve_fit_show_confidence_bars and (
+                not settings.curve_fit_selected_only or one.name in settings.curve_fit_selected_series
+            ):
                 fit_axis_bounds.setdefault(target_ax, []).extend((*fit.lower, *fit.upper))
         for target_ax, band_values in fit_axis_bounds.items():
             current_min, current_max = target_ax.get_ylim()

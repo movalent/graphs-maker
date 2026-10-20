@@ -221,6 +221,7 @@ def test_scatter_curve_fits_draw_colored_bands_and_configured_equations(scatter_
         PlotConfig(
             chart='scatter',
             curve_fit_enabled=True,
+            curve_fit_show_confidence_bars=True,
             curve_fit_equation_position='top-left',
             curve_fit_equation_font='DejaVu Sans',
             curve_fit_equation_size=13,
@@ -260,6 +261,7 @@ def test_confidence_band_can_be_limited_to_selected_series() -> None:
         PlotConfig(
             chart='scatter',
             curve_fit_enabled=True,
+            curve_fit_show_confidence_bars=True,
             curve_fit_selected_only=True,
             curve_fit_selected_series=('S2',),
         ),
@@ -280,6 +282,14 @@ def test_scatter_curve_fit_is_opt_in(scatter_dataset: Dataset) -> None:
 
     assert len(axes_of(figure).collections) == 0
     assert not any(text.get_text().startswith('y =') for text in axes_of(figure).texts)
+
+
+def test_scatter_curve_fit_hides_confidence_bars_by_default(scatter_dataset: Dataset) -> None:
+    figure = plot_dataset(scatter_dataset, PlotConfig(chart='scatter', curve_fit_enabled=True))
+    ax = axes_of(figure)
+
+    assert len(ax.collections) == 0
+    assert len([line for line in ax.lines if line.get_linestyle() == '--']) == 1
 
 
 def replicate_point_lines(figure: Figure, point_type: PointType = DEFAULT_POINT_TYPE) -> list[Line2D]:

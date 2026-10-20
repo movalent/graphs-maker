@@ -35,6 +35,7 @@ The goal is to remove rarely used GraphPad functions and condense most useful on
 - File deletion
 - Deletion of duplicate code
 - Running full build or E2E test suites
+- Make changes to agents.md or readme.md
 
 ## Git Workflow
 - Do not commit, push, merge, or force-push without approval

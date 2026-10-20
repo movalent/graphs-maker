@@ -12,7 +12,7 @@ It will not try to recreate all prism functionality, only what I require in my d
 # Install
 
 # Features
-- Bar, scatter, box, violin, line graphs
+- Bar, scatter, box, violin, combined box + violin, line graphs
 - Optional right-side Y axis for scatter plots and vertical bar graphs
 - Data preview in the main window
 - All customization options in one pane

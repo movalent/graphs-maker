@@ -454,10 +454,11 @@ class PlotConfig:
             individually. The shapes that have no interior are filled rather than left open,
             because an open cross is a cross drawn as two bare lines.
         connect_points: Whether the points of a scatter series are joined by a line.
-        curve_fit_enabled: Whether scatter series have fitted curves and confidence bands.
+        curve_fit_enabled: Whether scatter series have fitted curves.
         curve_fit_model: Linear regression or polynomial regression.
         curve_fit_degree: Polynomial degree when the selected model is polynomial.
         curve_fit_confidence: Confidence level of the fitted-mean confidence band, in percent.
+        curve_fit_show_confidence_bars: Whether to draw confidence bands around fitted curves.
         curve_fit_selected_only: Whether to show the confidence band only for highlighted
             scatter series.
         curve_fit_selected_series: Highlighted series for which to draw the confidence band.
@@ -536,6 +537,7 @@ class PlotConfig:
     curve_fit_model: CurveFitModel = 'linear'
     curve_fit_degree: int = 2
     curve_fit_confidence: float = 95.0
+    curve_fit_show_confidence_bars: bool = False
     curve_fit_selected_only: bool = False
     curve_fit_selected_series: tuple[str, ...] = ()
     curve_fit_show_equation: bool = True

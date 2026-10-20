@@ -126,6 +126,7 @@ class _AppBase:
     curve_fit_model_var: tk.StringVar
     curve_fit_degree_var: tk.StringVar
     curve_fit_confidence_var: tk.StringVar
+    curve_fit_show_confidence_bars_var: tk.BooleanVar
     curve_fit_selected_only_var: tk.BooleanVar
     curve_fit_show_equation_var: tk.BooleanVar
     curve_fit_equation_position_var: tk.StringVar

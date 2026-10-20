@@ -82,6 +82,7 @@ class GeneralTabMixin(_AppBase):
         self.curve_fit_model_var.set(CURVE_FIT_MODEL_LABELS[config.curve_fit_model])
         self.curve_fit_degree_var.set(str(config.curve_fit_degree))
         self.curve_fit_confidence_var.set(str(config.curve_fit_confidence))
+        self.curve_fit_show_confidence_bars_var.set(config.curve_fit_show_confidence_bars)
         self.curve_fit_selected_only_var.set(config.curve_fit_selected_only)
         self.curve_fit_show_equation_var.set(config.curve_fit_show_equation)
         self.curve_fit_equation_position_var.set(CURVE_EQUATION_POSITION_LABELS[config.curve_fit_equation_position])
@@ -255,7 +256,7 @@ class GeneralTabMixin(_AppBase):
         self.curve_fit_enabled_var = tk.BooleanVar(value=False)
         ttk.Checkbutton(
             fit_panel,
-            text='Show fitted curves and confidence bands',
+            text='Show fitted curves',
             variable=self.curve_fit_enabled_var,
             command=self._update_curve_fit,
         ).pack(anchor=tk.W)
@@ -273,6 +274,13 @@ class GeneralTabMixin(_AppBase):
         )
         self.curve_fit_confidence_var = tk.StringVar(value='95')
         number_row(fit_panel, 'Confidence (%)', self.curve_fit_confidence_var, self._update_curve_fit)
+        self.curve_fit_show_confidence_bars_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(
+            fit_panel,
+            text='Show confidence bars',
+            variable=self.curve_fit_show_confidence_bars_var,
+            command=self._update_curve_fit,
+        ).pack(anchor=tk.W)
         ttk.Label(
             fit_panel,
             text='Pointwise confidence band for the fitted mean.',
@@ -338,6 +346,7 @@ class GeneralTabMixin(_AppBase):
         )
         config.curve_fit_degree = int(self.curve_fit_degree_var.get())
         config.curve_fit_confidence = confidence
+        config.curve_fit_show_confidence_bars = self.curve_fit_show_confidence_bars_var.get()
         config.curve_fit_selected_only = self.curve_fit_selected_only_var.get()
         config.curve_fit_selected_series = self._selected_samples() if config.curve_fit_selected_only else ()
         config.curve_fit_show_equation = self.curve_fit_show_equation_var.get()

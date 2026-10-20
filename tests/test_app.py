@@ -947,10 +947,12 @@ def test_box_and_violin_can_be_selected_together_in_the_window(app: GraphPadApp)
 def test_curve_fit_controls_update_and_sync_scatter_settings(app: GraphPadApp) -> None:
     app.chart_var.set('Scatter plot')
     app._update_chart()
+    assert app.curve_fit_show_confidence_bars_var.get() is False
     app.curve_fit_enabled_var.set(True)
     app.curve_fit_model_var.set('Polynomial')
     app.curve_fit_degree_var.set('4')
     app.curve_fit_confidence_var.set('99.5')
+    app.curve_fit_show_confidence_bars_var.set(True)
     app.curve_fit_show_equation_var.set(False)
     app.curve_fit_equation_position_var.set('Top-left')
     app.curve_fit_equation_font_var.set('Calibri')
@@ -961,6 +963,7 @@ def test_curve_fit_controls_update_and_sync_scatter_settings(app: GraphPadApp) -
     assert app.state.config.curve_fit_model == 'polynomial'
     assert app.state.config.curve_fit_degree == 4
     assert app.state.config.curve_fit_confidence == pytest.approx(99.5)
+    assert app.state.config.curve_fit_show_confidence_bars is True
     assert app.state.config.curve_fit_show_equation is False
     assert app.state.config.curve_fit_equation_position == 'top-left'
     assert app.state.config.curve_fit_equation_font == 'Calibri'
@@ -969,6 +972,7 @@ def test_curve_fit_controls_update_and_sync_scatter_settings(app: GraphPadApp) -
     app._sync_from_state()
 
     assert app.curve_fit_confidence_var.get() == '99.5'
+    assert app.curve_fit_show_confidence_bars_var.get() is True
     assert app.curve_fit_equation_font_var.get() == 'Calibri'
     assert app.curve_fit_equation_size_var.get() == '12'
 
