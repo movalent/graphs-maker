@@ -365,15 +365,25 @@ def test_a_colour_applies_to_every_selected_sample(app: GraphPadApp) -> None:
     assert app.state.color_of('B') == '#ff0000'
 
 
+def test_alpha_applies_to_every_selected_entry(app: GraphPadApp) -> None:
+    _select_rows(app, 0, 2)
+    app.alpha_var.set('35')
+    app._apply_alpha()
+    assert app.state.alpha_of('Control') == pytest.approx(0.35)
+    assert app.state.alpha_of('B') == pytest.approx(0.35)
+
+
 def test_clearing_the_style_applies_to_every_selected_sample(app: GraphPadApp) -> None:
     _select_rows(app, 0, 1)
     for name in ('Control', '42C'):
         app.state.set_edge_color(name, '#00ff00')
         app.state.set_hatch(name, '//')
+        app.state.set_alpha(name, 0.3)
     app._clear_style()
     for name in ('Control', '42C'):
         assert app.state.edge_of(name) == '#000000'
         assert app.state.hatch_of(name) == ''
+        assert app.state.alpha_of(name) == 1.0
 
 
 def test_grouping_the_selection_moves_every_sample(app: GraphPadApp) -> None:
@@ -1412,6 +1422,7 @@ def test_axis_panel_can_add_and_remove_reference_lines(app: GraphPadApp) -> None
     assert [line.orientation for line in app.state.config.reference_lines] == ['horizontal', 'vertical']
     assert [line.linestyle for line in app.state.config.reference_lines] == ['--', '--']
     assert len(app.reference_lines_frame.winfo_children()) == 4
+    app._update_reference_alpha(0, tk.StringVar(value='40'))
     app._update_reference_position(0, tk.StringVar(value='3.5'))
     app._update_reference_style(0, tk.StringVar(value='Dotted'))
     app._update_reference_width(0, tk.StringVar(value='2.5'))
@@ -1419,6 +1430,7 @@ def test_axis_panel_can_add_and_remove_reference_lines(app: GraphPadApp) -> None
     assert line.position == 3.5
     assert line.linestyle == ':'
     assert line.linewidth == 2.5
+    assert line.alpha == pytest.approx(0.4)
     app._remove_reference_line(0)
     assert [line.orientation for line in app.state.config.reference_lines] == ['vertical']
 

@@ -33,7 +33,7 @@ from src.models import (
     Orientation,
 )
 from src.ui.base import _SYNTHETIC_EVENT, PANEL_WIDTH, _AppBase
-from src.ui.fields import label_to
+from src.ui.fields import label_to, optional_number
 from src.ui.widgets import SWATCH_HEIGHT, draw_swatch, dropdown_row, option_row, pair_row, section, swatch
 
 JITTER_MAX = 0.6
@@ -216,6 +216,15 @@ class StyleTabMixin(_AppBase):
         entry.bind('<Return>', lambda _e: self._apply_edge())
         entry.bind('<FocusOut>', lambda _e: self._apply_edge())
         ttk.Button(row, text='Pick', width=6, command=self._pick_edge).pack(side=tk.LEFT)
+
+        row = ttk.Frame(self.style_frame)
+        row.pack(fill=tk.X, pady=(6, 0))
+        ttk.Label(row, text='Opacity (%)', font=('Segoe UI', 8), width=9).pack(side=tk.LEFT)
+        self.alpha_var = tk.StringVar(value='100')
+        alpha_entry = ttk.Spinbox(row, textvariable=self.alpha_var, from_=0, to=100, increment=5, width=7)
+        alpha_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        alpha_entry.bind('<Return>', lambda _e: self._apply_alpha())
+        alpha_entry.bind('<FocusOut>', lambda _e: self._apply_alpha())
 
         row = ttk.Frame(self.style_frame)
         row.pack(fill=tk.X, pady=(6, 0))
@@ -434,6 +443,18 @@ class StyleTabMixin(_AppBase):
         for name in self._selected_samples():
             self.state.set_edge_color(name, value)
         self.redraw()
+    def _apply_alpha(self, _event: object = None) -> None:
+        """Apply the opacity percentage to every selected sample or series."""
+        if self.syncing:
+            return
+        names = self._selected_samples()
+        chosen = optional_number(self.alpha_var.get())
+        if not names or chosen is None or not 0.0 <= chosen <= 100.0:
+            self._show_selected_style()
+            return
+        for name in names:
+            self.state.set_alpha(name, chosen / 100.0)
+        self.redraw()
     def _pick_edge(self) -> None:
         """Open the colour chooser for the outline of the selected samples."""
         names = self._selected_samples()
@@ -501,12 +522,13 @@ class StyleTabMixin(_AppBase):
         config.label_series = tuple(sorted(labelled))
         self.redraw()
     def _clear_style(self) -> None:
-        """Return every selected sample to the default outline and no hatch."""
+        """Return every selected entry to its default opacity, outline and hatch."""
         for name in self._selected_samples():
             # An empty colour is refused by the state, so the entry is dropped instead, which
             # is what puts the bar back to the shared default outline.
             self.state.config.hatches.pop(name, None)
             self.state.config.edge_colors.pop(name, None)
+            self.state.config.alphas.pop(name, None)
             # The shape is dropped with them, so clearing a series' style returns its points to
             # the shape the whole graph is drawn with rather than leaving them apart from it.
             self.state.clear_point_type(name)

@@ -97,6 +97,7 @@ class _AppBase:
     hex_var: tk.StringVar
     hex_entry: ttk.Entry
     swatch: tk.Button
+    alpha_var: tk.StringVar
     # The colour palette in use, its name, and the parts of the picker showing it.
     palette_key_var: tk.StringVar
     palette_var: tk.StringVar
@@ -157,6 +158,7 @@ class _AppBase:
     log_var: tk.StringVar
     reference_lines_frame: ttk.Labelframe
     reference_color_buttons: dict[int, tk.Button]
+    reference_alpha_vars: dict[int, tk.StringVar]
     secondary_y_expanded: bool
     secondary_y_toggle_button: ttk.Button
     secondary_y_frame: ttk.Frame

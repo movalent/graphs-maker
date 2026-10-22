@@ -303,6 +303,7 @@ class SampleListMixin(_AppBase):
         # all of them, and a change applies to every one of them anyway.
         first = names[0]
         self.edge_var.set(self.state.edge_of(first))
+        self.alpha_var.set(f'{self.state.alpha_of(first) * 100:g}')
         # The list shows a label rather than the pattern, so the two index aligned tuples
         # are used to turn one into the other, and an unknown pattern shows as none.
         pattern = self.state.hatch_of(first)

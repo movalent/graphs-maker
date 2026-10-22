@@ -336,6 +336,7 @@ class ReferenceLine:
         linestyle: Matplotlib line style.
         color: Hex color used to draw the line.
         linewidth: Thickness in points.
+        alpha: Opacity of the line, from ``0.0`` (transparent) to ``1.0`` (opaque).
 
     """
 
@@ -344,6 +345,7 @@ class ReferenceLine:
     linestyle: ReferenceLineStyle = DEFAULT_REFERENCE_LINE_STYLE
     color: str = DEFAULT_REFERENCE_LINE_COLOR
     linewidth: float = DEFAULT_LINE_WIDTH
+    alpha: float = 1.0
 
 
 @dataclass(slots=True)
@@ -353,6 +355,8 @@ class PlotConfig:
     Attributes:
         colors: Explicit fill colour per sample name. Samples without an entry fall back to
             the GraphPad palette.
+        alphas: Opacity per sample or scatter series, from ``0.0`` (transparent) to ``1.0``
+            (opaque). Entries without an override are fully opaque.
         edge_colors: Explicit outline colour per sample name.
         hatches: Explicit hatch pattern per sample name, using the matplotlib pattern
             characters such as ``'//'``.
@@ -533,6 +537,7 @@ class PlotConfig:
     label_series: tuple[str, ...] = ()
     series_order: tuple[str, ...] = ()
     reference_lines: tuple[ReferenceLine, ...] = ()
+    alphas: dict[str, float] = field(default_factory=dict)
     curve_fit_enabled: bool = False
     curve_fit_model: CurveFitModel = 'linear'
     curve_fit_degree: int = 2

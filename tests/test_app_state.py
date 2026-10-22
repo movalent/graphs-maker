@@ -38,6 +38,16 @@ def test_initial_order_matches_the_sheet(state: AppState) -> None:
     assert state.index_of('Other') == 2
 
 
+def test_sample_opacity_defaults_to_opaque_and_can_be_set(state: AppState) -> None:
+    assert state.alpha_of('Control') == 1.0
+    assert state.set_alpha('Control', 0.35)
+    assert state.alpha_of('Control') == 0.35
+    assert not state.set_alpha('Control', -0.1)
+    assert not state.set_alpha('Control', 1.1)
+    assert not state.set_alpha('Control', float('nan'))
+    assert not state.set_alpha('missing', 0.5)
+
+
 def test_undo_and_redo_restore_config_and_preview_state(state: AppState) -> None:
     initial_dataset = state.dataset
     state.config.title = 'First'
@@ -229,12 +239,13 @@ def test_reference_lines_default_to_dashed_black_at_the_prism_width(state: AppSt
     assert line.linestyle == DEFAULT_REFERENCE_LINE_STYLE
     assert line.color == '#000000'
     assert line.linewidth == DEFAULT_LINE_WIDTH
+    assert line.alpha == 1.0
 
 
 def test_reference_lines_can_be_updated_and_removed(state: AppState) -> None:
     state.add_reference_line('vertical', 2.0)
-    assert state.update_reference_line(0, ReferenceLine('vertical', 3.5, ':', '#ABC', 2.5))
-    assert state.config.reference_lines[0] == ReferenceLine('vertical', 3.5, ':', '#aabbcc', 2.5)
+    assert state.update_reference_line(0, ReferenceLine('vertical', 3.5, ':', '#ABC', 2.5, 0.4))
+    assert state.config.reference_lines[0] == ReferenceLine('vertical', 3.5, ':', '#aabbcc', 2.5, 0.4)
     assert state.remove_reference_line(0)
     assert state.config.reference_lines == ()
     assert not state.remove_reference_line(0)
@@ -249,6 +260,9 @@ def test_reference_lines_can_be_updated_and_removed(state: AppState) -> None:
         ReferenceLine('vertical', 1.0, color='not-a-color'),
         ReferenceLine('vertical', 1.0, linewidth=0.0),
         ReferenceLine('vertical', 1.0, linewidth=11.0),
+        ReferenceLine('vertical', 1.0, alpha=-0.1),
+        ReferenceLine('vertical', 1.0, alpha=1.1),
+        ReferenceLine('vertical', 1.0, alpha=float('nan')),
     ),
 )
 def test_invalid_reference_line_edits_are_refused(state: AppState, line: ReferenceLine) -> None:

@@ -134,6 +134,25 @@ def test_distribution_graph_types_apply_sample_fill_and_outline(
         assert colors.to_hex(body.get_edgecolor()[0]) == outline
 
 
+@pytest.mark.parametrize('chart', ('bar', 'box', 'violin', 'box_violin'))
+def test_sample_alpha_applies_to_sample_marks_and_points(
+    simple_dataset: Dataset,
+    chart: str,
+) -> None:
+    figure = plot_dataset(
+        simple_dataset,
+        PlotConfig(chart=chart, alphas={'Control': 0.35}),
+    )
+    ax = axes_of(figure)
+    if chart in ('bar', 'box', 'box_violin'):
+        expected_box_alpha = 0.65 * 0.35 if chart == 'box_violin' else 0.35
+        assert ax.patches[0].get_alpha() == pytest.approx(expected_box_alpha)
+    assert _replicate_lines(figure)[0].get_alpha() == pytest.approx(0.35)
+    if chart in ('violin', 'box_violin'):
+        expected_violin_alpha = 0.3 * 0.35 if chart == 'box_violin' else 0.35
+        assert ax.collections[0].get_alpha() == pytest.approx(expected_violin_alpha)
+
+
 def test_box_and_violin_are_drawn_together_for_each_sample(simple_dataset: Dataset) -> None:
     figure = plot_dataset(simple_dataset, PlotConfig(chart='box_violin'))
 
@@ -903,7 +922,7 @@ def test_reference_lines_are_styled_in_data_coordinates(
 ) -> None:
     dataset = request.getfixturevalue(f'{dataset_fixture}_dataset')
     lines = (
-        ReferenceLine('horizontal', 25.0, '--', '#123456', 2.5),
+        ReferenceLine('horizontal', 25.0, '--', '#123456', 2.5, 0.4),
         ReferenceLine('vertical', 1.25, ':', '#654321', 3.0),
     )
     figure = plot_dataset(
@@ -916,6 +935,7 @@ def test_reference_lines_are_styled_in_data_coordinates(
     assert horizontal.get_linestyle() == '--'
     assert horizontal.get_linewidth() == pytest.approx(2.5)
     assert to_hex(horizontal.get_color()) == '#123456'
+    assert horizontal.get_alpha() == pytest.approx(0.4)
     assert vertical.get_linestyle() == ':'
     assert vertical.get_linewidth() == pytest.approx(3.0)
     assert to_hex(vertical.get_color()) == '#654321'
@@ -1720,6 +1740,16 @@ def test_points_can_be_joined_by_a_line(scatter_dataset: Dataset) -> None:
     plain = axes_of(plot_dataset(scatter_dataset, PlotConfig(chart='scatter', connect_points=False)))
     assert joined.lines[0].get_linestyle() == '-'
     assert plain.lines[0].get_linestyle() == 'None'
+
+
+def test_scatter_series_alpha_applies_to_its_data_line(scatter_dataset: Dataset) -> None:
+    figure = plot_dataset(
+        scatter_dataset,
+        PlotConfig(chart='scatter', alphas={'S1': 0.25}),
+    )
+    series_lines = [line for line in axes_of(figure).lines if line.get_picker()]
+    assert series_lines
+    assert series_lines[0].get_alpha() == pytest.approx(0.25)
 
 
 @pytest.mark.parametrize('orientation', ORIENTATIONS)

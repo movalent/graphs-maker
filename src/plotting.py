@@ -492,6 +492,7 @@ def _draw_reference_lines(ax: Axes, lines: Sequence[ReferenceLine]) -> None:
             color=line.color,
             linewidth=line.linewidth,
             linestyle=line.linestyle,
+            alpha=line.alpha,
             zorder=3.5,
         )
     ax.set_xlim(x_limits)
@@ -1212,6 +1213,7 @@ def plot_bars(dataset: Dataset, config: PlotConfig | None = None) -> Figure:
     means = [sample.mean for sample in samples]
     bar_width = settings.bar_line_width or DEFAULT_LINE_WIDTH
     edges = [settings.edge_colors.get(sample.name, BAR_EDGE) for sample in samples]
+    alphas = [settings.alphas.get(sample.name, 1.0) for sample in samples]
     hatches = [settings.hatches.get(sample.name, '') for sample in samples]
     errors = [sample.error(settings.error_kind) for sample in samples]
     primary_samples = tuple(samples[index] for index in primary_indices)
@@ -1225,6 +1227,7 @@ def plot_bars(dataset: Dataset, config: PlotConfig | None = None) -> Figure:
         target_samples = [samples[index] for index in indices]
         target_colors = [colors[index] for index in indices]
         target_edges = [edges[index] for index in indices]
+        target_alphas = [alphas[index] for index in indices]
         target_hatches = [hatches[index] for index in indices]
         if horizontal:
             bars = target_ax.barh(
@@ -1250,6 +1253,8 @@ def plot_bars(dataset: Dataset, config: PlotConfig | None = None) -> Figure:
                 align='center',
                 zorder=2,
             )
+        for patch, alpha in zip(bars.patches, target_alphas, strict=True):
+            patch.set_alpha(alpha)
         tag_bars(fig, bars, [sample.name for sample in target_samples])
 
         # Error bars follow each subset onto the axis its values are measured against.
@@ -1280,7 +1285,9 @@ def plot_bars(dataset: Dataset, config: PlotConfig | None = None) -> Figure:
 
         if not settings.show_points:
             continue
-        for center, sample, color in zip(target_centers, target_samples, target_colors, strict=True):
+        for center, sample, color, alpha in zip(
+            target_centers, target_samples, target_colors, target_alphas, strict=True
+        ):
             offsets = [
                 center + _jitter_offset(index, sample.n, settings.jitter) * layout.width for index in range(sample.n)
             ]
@@ -1301,6 +1308,7 @@ def plot_bars(dataset: Dataset, config: PlotConfig | None = None) -> Figure:
                 markerfacecolor=fill,
                 markeredgecolor=color,
                 markeredgewidth=1.0,
+                alpha=alpha,
                 zorder=5,
             )
             # The points sit on top of their own bar, so they carry the sample name too and
@@ -1407,6 +1415,7 @@ def plot_distributions(dataset: Dataset, config: PlotConfig | None = None) -> Fi
     for sample, center, color in zip(samples, layout.centers, colors, strict=True):
         if not sample.values:
             continue
+        alpha = settings.alphas.get(sample.name, 1.0)
         edge = settings.edge_colors.get(sample.name, BAR_EDGE)
         values = list(sample.values)
 
@@ -1425,7 +1434,7 @@ def plot_distributions(dataset: Dataset, config: PlotConfig | None = None) -> Fi
                 body.set_facecolor(color)
                 body.set_edgecolor(edge)
                 body.set_linewidth(line_width)
-                body.set_alpha(0.3 if combined else 1.0)
+                body.set_alpha((0.3 if combined else 1.0) * alpha)
                 body.set_hatch(settings.hatches.get(sample.name, ''))
                 body.set_zorder(1)
                 tag_artists(fig, [body], [sample.name])
@@ -1441,6 +1450,7 @@ def plot_distributions(dataset: Dataset, config: PlotConfig | None = None) -> Fi
                     *coordinates,
                     color=edge,
                     linewidth=line_width,
+                    alpha=alpha,
                     solid_capstyle='round',
                     zorder=3,
                 )
@@ -1461,11 +1471,11 @@ def plot_distributions(dataset: Dataset, config: PlotConfig | None = None) -> Fi
             box.set_edgecolor(edge)
             box.set_linewidth(line_width)
             box.set_hatch(settings.hatches.get(sample.name, ''))
-            if combined:
-                box.set_alpha(0.65)
+            box.set_alpha((0.65 if combined else 1.0) * alpha)
             for element in ('whiskers', 'caps', 'medians', 'fliers'):
                 for artist in boxplot[element]:
                     artist.set_color(edge)
+                    artist.set_alpha(alpha)
                     if element == 'fliers':
                         artist.set_markerfacecolor(color)
                     artist.set_linewidth(line_width)
@@ -1495,6 +1505,7 @@ def plot_distributions(dataset: Dataset, config: PlotConfig | None = None) -> Fi
                 markerfacecolor=fill,
                 markeredgecolor=color,
                 markeredgewidth=1.0,
+                alpha=alpha,
                 zorder=5,
             )
             tag_artists(fig, points, [sample.name])
@@ -1610,6 +1621,7 @@ def plot_scatter(dataset: Dataset, config: PlotConfig | None = None) -> Figure:
     secondary_series = tuple(one for one in series if one.name in secondary_names)
     names = [one.name for one in series]
     colors = _series_colors(names, settings)
+    alphas = [settings.alphas.get(name, 1.0) for name in names]
     size = settings.point_size or DEFAULT_POINT_SIZE
     width = settings.bar_line_width or DEFAULT_LINE_WIDTH
     fitted: list[tuple[str, str, CurveFit]] = []
@@ -1617,7 +1629,7 @@ def plot_scatter(dataset: Dataset, config: PlotConfig | None = None) -> Figure:
     fit_axis_bounds: dict[Axes, list[float]] = {}
 
     connected = _connected_series(names, settings)
-    for one, errors, color in zip(series, deviations, colors, strict=True):
+    for one, errors, color, alpha in zip(series, deviations, colors, alphas, strict=True):
         target_ax = secondary_ax if one.name in secondary_names and secondary_ax is not None else ax
         marker, fill = _point_marks(settings, one.name, color)
         x_values = [point.x for point in one.points]
@@ -1638,6 +1650,7 @@ def plot_scatter(dataset: Dataset, config: PlotConfig | None = None) -> Figure:
                 elinewidth=width,
                 capsize=3,
                 capthick=width,
+                alpha=alpha,
                 zorder=3,
             )
             data_line, cap_lines, bar_lines = drawn.lines
@@ -1656,6 +1669,7 @@ def plot_scatter(dataset: Dataset, config: PlotConfig | None = None) -> Figure:
                 markerfacecolor=fill,
                 markeredgecolor=color,
                 markeredgewidth=width,
+                alpha=alpha,
                 zorder=3,
             )
             tag_artists(fig, line, [one.name])
@@ -1680,7 +1694,7 @@ def plot_scatter(dataset: Dataset, config: PlotConfig | None = None) -> Figure:
     ax.set_xlabel(settings.x_label_override or dataset.x_label)
     if settings.curve_fit_enabled:
         degree = 1 if settings.curve_fit_model == 'linear' else settings.curve_fit_degree
-        for one, color in zip(series, colors, strict=True):
+        for one, color, alpha in zip(series, colors, alphas, strict=True):
             target_ax = secondary_ax if one.name in secondary_names and secondary_ax is not None else ax
             if settings.log_axis or (target_ax is secondary_ax and settings.secondary_log_axis):
                 skipped_fits.append(f'{one.name}: fitting is unavailable on a logarithmic Y axis')
@@ -1698,8 +1712,16 @@ def plot_scatter(dataset: Dataset, config: PlotConfig | None = None) -> Figure:
             if settings.curve_fit_show_confidence_bars and (
                 not settings.curve_fit_selected_only or one.name in settings.curve_fit_selected_series
             ):
-                target_ax.fill_between(fit.x, fit.lower, fit.upper, color=color, alpha=0.16, linewidth=0, zorder=1)
-            target_ax.plot(fit.x, fit.y, color=color, linestyle='--', linewidth=1.2, zorder=2)
+                target_ax.fill_between(
+                    fit.x,
+                    fit.lower,
+                    fit.upper,
+                    color=color,
+                    alpha=0.16 * alpha,
+                    linewidth=0,
+                    zorder=1,
+                )
+            target_ax.plot(fit.x, fit.y, color=color, alpha=alpha, linestyle='--', linewidth=1.2, zorder=2)
             fitted.append((one.name, color, fit))
             if settings.curve_fit_show_confidence_bars and (
                 not settings.curve_fit_selected_only or one.name in settings.curve_fit_selected_series

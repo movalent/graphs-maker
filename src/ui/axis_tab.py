@@ -466,6 +466,7 @@ class AxisTabMixin(_AppBase):
         for child in self.reference_lines_frame.winfo_children()[2:]:
             child.destroy()
         self.reference_color_buttons = {}
+        self.reference_alpha_vars = {}
         for index, line in enumerate(self.state.config.reference_lines):
             box = ttk.LabelFrame(
                 self.reference_lines_frame,
@@ -510,6 +511,7 @@ class AxisTabMixin(_AppBase):
                 command=partial(self._remove_reference_line, index),
             ).pack(side=tk.LEFT, padx=(5, 0))
             self._reference_color_button(box, index, line.color)
+            self._reference_alpha_row(box, index, line.alpha)
         bind_wheel(self.reference_lines_frame, self._on_body_wheel)
         self.reference_lines_frame.update_idletasks()
         self._body_inner.update_idletasks()
@@ -532,6 +534,44 @@ class AxisTabMixin(_AppBase):
         button.pack(side=tk.LEFT, fill=tk.X, expand=True)
         self.reference_color_buttons[index] = button
         return button
+
+    def _reference_alpha_row(self, parent: tk.Widget, index: int, alpha: float) -> None:
+        """Add an opacity percentage field for one reference line."""
+        row = ttk.Frame(parent)
+        row.pack(fill=tk.X, pady=(4, 0))
+        ttk.Label(row, text='Opacity (%)', font=('Segoe UI', 8), width=9).pack(side=tk.LEFT)
+        variable = tk.StringVar(value=f'{alpha * 100:g}')
+        self.reference_alpha_vars[index] = variable
+        entry = ttk.Spinbox(row, textvariable=variable, from_=0, to=100, increment=5, width=7)
+        entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        entry.bind('<Return>', partial(self._update_reference_alpha, index, variable))
+        entry.bind('<FocusOut>', partial(self._update_reference_alpha, index, variable))
+
+    def _update_reference_alpha(
+        self,
+        index: int,
+        variable: tk.StringVar,
+        _event: object = None,
+    ) -> None:
+        """Apply a finite opacity percentage to one reference line."""
+        if self.syncing:
+            return
+        line = self.state.config.reference_lines[index]
+        percentage = optional_number(variable.get())
+        if percentage is None or not math.isfinite(percentage) or not 0.0 <= percentage <= 100.0:
+            variable.set(f'{line.alpha * 100:g}')
+            return
+        self._update_reference_line(
+            index,
+            ReferenceLine(
+                line.orientation,
+                line.position,
+                line.linestyle,
+                line.color,
+                line.linewidth,
+                percentage / 100,
+            ),
+        )
 
     def _add_reference_line(self, orientation: ReferenceLineOrientation) -> None:
         """Add a reference line in the requested direction and redraw the graph."""
@@ -567,7 +607,7 @@ class AxisTabMixin(_AppBase):
             return
         line = self.state.config.reference_lines[index]
         if not self._update_reference_line(
-            index, ReferenceLine(line.orientation, position, line.linestyle, line.color, line.linewidth)
+            index, ReferenceLine(line.orientation, position, line.linestyle, line.color, line.linewidth, line.alpha)
         ):
             variable.set(f'{line.position:g}')
 
@@ -584,7 +624,7 @@ class AxisTabMixin(_AppBase):
             return
         line = self.state.config.reference_lines[index]
         if not self._update_reference_line(
-            index, ReferenceLine(line.orientation, line.position, style, line.color, line.linewidth)
+            index, ReferenceLine(line.orientation, line.position, style, line.color, line.linewidth, line.alpha)
         ):
             variable.set(REFERENCE_LINE_STYLE_LABELS[line.linestyle])
 
@@ -598,7 +638,7 @@ class AxisTabMixin(_AppBase):
             return
         line = self.state.config.reference_lines[index]
         if not self._update_reference_line(
-            index, ReferenceLine(line.orientation, line.position, line.linestyle, line.color, width)
+            index, ReferenceLine(line.orientation, line.position, line.linestyle, line.color, width, line.alpha)
         ):
             variable.set(f'{line.linewidth:g}')
 
@@ -611,7 +651,7 @@ class AxisTabMixin(_AppBase):
         color = normalize_hex(chosen[1]) or FALLBACK_COLOR
         if self._update_reference_line(
             index,
-            ReferenceLine(line.orientation, line.position, line.linestyle, color, line.linewidth),
+            ReferenceLine(line.orientation, line.position, line.linestyle, color, line.linewidth, line.alpha),
         ):
             button = self.reference_color_buttons[index]
             button.configure(

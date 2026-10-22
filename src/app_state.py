@@ -305,9 +305,16 @@ class AppState:
             self.config.series_order = self.sheet_series_order
         # Colours and overrides are keyed by sample name, so the ones belonging to a
         # column that has just been removed would linger and be reused if it came back.
-        for mapping in (self.config.colors, self.config.edge_colors, self.config.hatches, self.config.group_overrides):
+        for mapping in (
+            self.config.colors,
+            self.config.edge_colors,
+            self.config.hatches,
+            self.config.group_overrides,
+        ):
             for name in set(mapping) - present:
                 del mapping[name]
+        for name in set(self.config.alphas) - present - present_series:
+            del self.config.alphas[name]
 
     def set_columns(self, columns: Sequence[int] | None) -> None:
         """Record which worksheet columns are read, so the reader and the preview agree.
@@ -471,6 +478,27 @@ class AppState:
         self.config.colors[name] = normalize_hex(color) or color
         return True
 
+    def set_alpha(self, name: str, alpha: float) -> bool:
+        """Set the opacity for one sample or scatter series.
+
+        Args:
+            name: Name of the sample or series.
+            alpha: Opacity between ``0.0`` (transparent) and ``1.0`` (opaque).
+
+        Returns:
+            ``True`` when the entry exists and the opacity is finite and in range.
+
+        """
+        if self.index_of(name) < 0 or not math.isfinite(alpha) or not 0.0 <= alpha <= 1.0:
+            return False
+        self.config.alphas[name] = alpha
+        return True
+
+    def alpha_of(self, name: str) -> float:
+        """Return the opacity of one sample or series, defaulting to fully opaque."""
+        alpha = self.config.alphas.get(name, 1.0)
+        return alpha if math.isfinite(alpha) and 0.0 <= alpha <= 1.0 else 1.0
+
     def color_of(self, name: str) -> str:
         """Return the colour currently used for one sample.
 
@@ -515,8 +543,9 @@ class AppState:
         return self.config.chart in SAMPLE_CHARTS and self.config.color_by == 'group'
 
     def reset_colors(self) -> None:
-        """Drop every manual colour so the samples return to the GraphPad palette."""
+        """Drop manual colours and opacity so entries return to their defaults."""
         self.config.colors.clear()
+        self.config.alphas.clear()
         self.config.edge_colors.clear()
         self.config.hatches.clear()
 
@@ -848,10 +877,12 @@ class AppState:
             or not math.isfinite(line.position)
             or color is None
             or width is None
+            or not math.isfinite(line.alpha)
+            or not 0.0 <= line.alpha <= 1.0
         ):
             return False
         lines = list(self.config.reference_lines)
-        lines[index] = ReferenceLine(line.orientation, line.position, line.linestyle, color, width)
+        lines[index] = ReferenceLine(line.orientation, line.position, line.linestyle, color, width, line.alpha)
         self.config.reference_lines = tuple(lines)
         return True
 
