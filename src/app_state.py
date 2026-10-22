@@ -17,6 +17,7 @@ from src.graphpad_style import DEFAULT_LINE_WIDTH, DEFAULT_PALETTE, default_colo
 from src.models import (
     DEFAULT_CONNECT_POINTS,
     DEFAULT_DECIMALS,
+    DEFAULT_LABEL_ROTATION,
     DEFAULT_LEGEND_POSITION,
     DEFAULT_POINT_TYPE,
     DEFAULT_REFERENCE_LINE_COLOR,
@@ -953,7 +954,7 @@ class AppState:
         self.config.x_major_step = None
         self.config.x_axis_length_cm = DEFAULT_X_AXIS_LENGTH_CM
         self.config.y_axis_length_cm = DEFAULT_Y_AXIS_LENGTH_CM
-        self.config.label_rotation = 0.0
+        self.config.label_rotation = DEFAULT_LABEL_ROTATION
         self.config.x_label_override = None
         self.config.point_type = DEFAULT_POINT_TYPE
         self.config.point_types.clear()

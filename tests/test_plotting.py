@@ -470,9 +470,25 @@ def sample_label_rotations(figure: Figure, dataset: Dataset) -> set[float]:
     }
 
 
-def test_the_sample_names_are_upright_by_default(simple_dataset: Dataset) -> None:
-    """No rotation asked for means the labels stay as they have always been drawn."""
-    assert sample_label_rotations(plot_dataset(simple_dataset), simple_dataset) == {0.0}
+@pytest.mark.parametrize('chart', ('bar', 'box', 'violin', 'box_violin'))
+def test_summary_sample_names_are_turned_45_degrees_by_default(simple_dataset: Dataset, chart: str) -> None:
+    """Summary charts turn sample labels by default while explicit settings can override them."""
+    assert sample_label_rotations(plot_dataset(simple_dataset, PlotConfig(chart=chart)), simple_dataset) == {45.0}
+
+
+def test_summary_sample_names_can_be_upright_when_requested(simple_dataset: Dataset) -> None:
+    """An explicit zero angle still leaves summary sample labels upright."""
+    assert sample_label_rotations(
+        plot_dataset(simple_dataset, PlotConfig(label_rotation=0.0)),
+        simple_dataset,
+    ) == {0.0}
+
+
+def test_scatter_numeric_ticks_remain_upright_by_default(scatter_dataset: Dataset) -> None:
+    """The summary-label default never turns scatter plot numeric ticks."""
+    figure = plot_dataset(scatter_dataset, PlotConfig(chart='scatter'))
+    figure.canvas.draw()
+    assert {tick.get_rotation() for tick in axes_of(figure).get_xticklabels()} == {0.0}
 
 
 @pytest.mark.parametrize('rotation', [45, 90, -45, 180])
@@ -500,7 +516,7 @@ def test_a_turned_name_stays_under_its_own_bar(simple_dataset: Dataset) -> None:
 
 def test_turning_the_names_gives_the_plot_more_room_at_the_bottom(simple_dataset: Dataset) -> None:
     """Turned names reach further down, so the plot has to start higher up."""
-    upright_figure = plot_dataset(simple_dataset)
+    upright_figure = plot_dataset(simple_dataset, PlotConfig(label_rotation=0))
     turned_figure = plot_dataset(simple_dataset, PlotConfig(label_rotation=90))
     upright = axes_bounds_inches(upright_figure)[1]
     turned = axes_bounds_inches(turned_figure)[1]

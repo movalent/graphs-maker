@@ -3393,7 +3393,7 @@ def test_the_label_rotation_belongs_to_the_x_axis(app: GraphPadApp) -> None:
 
 def test_the_label_rotation_is_kept_inside_its_range(blank_app: GraphPadApp) -> None:
     """The field accepts a whole turn either way, and refuses to hold more than that."""
-    assert blank_app.rotation_var.get() == '0'
+    assert blank_app.rotation_var.get() == '45'
     blank_app.rotation_var.set('90')
     blank_app._update_rotation()
     assert blank_app.rotation_var.get() == '90'
@@ -3430,13 +3430,13 @@ def test_the_label_rotation_survives_a_sync(app: GraphPadApp) -> None:
     assert app.rotation_var.get() == '45'
 
 
-def test_a_reset_turns_the_names_upright_again(app: GraphPadApp) -> None:
-    """A reset undoes the turn, which is a choice like any other."""
+def test_a_reset_restores_the_default_label_turn(app: GraphPadApp) -> None:
+    """A reset restores the angled summary-label default."""
     app.rotation_var.set('90')
     app._update_rotation()
     app._reset()
-    assert app.state.config.label_rotation == 0.0
-    assert app.rotation_var.get() == '0'
+    assert app.state.config.label_rotation == 45.0
+    assert app.rotation_var.get() == '45'
 
 
 def test_the_x_title_is_drawn_for_a_scatter_plot(blank_app: GraphPadApp) -> None:

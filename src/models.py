@@ -96,6 +96,7 @@ REFERENCE_LINE_STYLE_LABELS: dict[ReferenceLineStyle, str] = {
     '-.': 'Dash-dot',
 }
 DEFAULT_REFERENCE_LINE_STYLE: ReferenceLineStyle = '--'
+DEFAULT_LABEL_ROTATION = 45.0
 DEFAULT_REFERENCE_LINE_COLOR = '#000000'
 # The shape a point is drawn as, and the caption each is offered under. The shape is held
 # here rather than in the window so that the caption a user reads and the mark the renderer
@@ -433,10 +434,9 @@ class PlotConfig:
         x_label_override: Replacement text for the x axis label, or ``None`` to keep the one
             read from the worksheet. A bar graph names its samples along that axis rather
             than labelling it, so this describes a scatter plot only.
-        label_rotation: How far the x axis labels are turned, in degrees. ``0.0`` leaves
-            them upright, which is the Prism default. A bar graph's sample names are the
-            labels that start to overlap once there are more than a few, so this is what
-            gives them room; a scatter plot numbers that axis and keeps them upright.
+        label_rotation: How far the sample labels on summary charts are turned, in degrees.
+            The default is ``45.0`` to keep longer labels apart; set ``0.0`` to leave them
+            upright. Scatter plots keep their numeric x-axis tick labels upright.
         preview_decimals: Decimal places the data preview rounds to, or ``None`` to show the
             sheet values exactly. This is a display setting only: it changes what the
             preview prints and nothing the reader or the graph ever sees.
@@ -523,7 +523,7 @@ class PlotConfig:
     x_direction: XDirection = 'column'
     x_column: int | None = None
     x_label_override: str | None = None
-    label_rotation: float = 0.0
+    label_rotation: float = DEFAULT_LABEL_ROTATION
     point_size: int | None = None
     point_type: PointType = DEFAULT_POINT_TYPE
     connect_points: bool = DEFAULT_CONNECT_POINTS

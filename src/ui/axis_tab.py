@@ -22,6 +22,7 @@ from src.app_state import FALLBACK_COLOR, LineTarget, normalize_hex
 from src.graphpad_style import DEFAULT_LEGEND_FONT, DEFAULT_TICK_FONT
 from src.models import (
     DEFAULT_FONT_TYPE,
+    DEFAULT_LABEL_ROTATION,
     REFERENCE_LINE_STYLE_LABELS,
     REFERENCE_LINE_STYLES,
     ReferenceLine,
@@ -40,7 +41,7 @@ AXIS_TYPES: tuple[str, ...] = ('Linear', 'Logarithmic')
 # would draw text upside down or mirrored, which is never what anyone means.
 MIN_ROTATION = -180
 MAX_ROTATION = 180
-DEFAULT_ROTATION = 0
+DEFAULT_ROTATION = DEFAULT_LABEL_ROTATION
 
 
 def _positive_length(text: str, previous: float) -> float:
