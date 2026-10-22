@@ -16,6 +16,7 @@ import pytest
 from matplotlib.colors import to_hex
 from matplotlib.text import Text
 from src.app_state import DEFAULT_LINE_WIDTH, HATCH_LABELS, HATCH_PATTERNS, AppState
+from src.excel_reader import read_table
 from src.graphpad_style import DEFAULT_PALETTE, PALETTES, palette_colors
 from src.models import (
     CHART_KINDS,
@@ -27,7 +28,7 @@ from src.models import (
     XYPoint,
     XYSeries,
 )
-from src.sheet_view import CELL_HEIGHT, COLUMN_HEADER_HEIGHT, Role
+from src.sheet_view import CELL_HEIGHT, CELL_WIDTH, COLUMN_HEADER_HEIGHT, ROW_HEADER_WIDTH, Role
 from src.ui import data_pane, shell, style_tab
 
 if TYPE_CHECKING:
@@ -161,6 +162,64 @@ def test_preview_rounding_is_undoable(app: GraphPadApp) -> None:
     assert app._undo()
     assert app.state.config.preview_decimals == 2
     assert app.decimals_var.get() == '2'
+
+
+@pytest.mark.undo_redo
+def test_preview_names_are_editable_session_only_and_undoable(app: GraphPadApp) -> None:
+    original_workbook = read_table(INPUT_FILE)
+    assert app.load_file(INPUT_FILE)
+    group_row = app.sheet.role_row(Role.GROUP)
+    condition_row = app.sheet.role_row(Role.CONDITIONS)
+    assert group_row is not None
+    assert condition_row is not None
+    original_group = app.state.dataset.samples[0].group
+
+    app.sheet._on_double_click(
+        SimpleNamespace(
+            x=ROW_HEADER_WIDTH + CELL_WIDTH // 2,
+            y=COLUMN_HEADER_HEIGHT + group_row * CELL_HEIGHT + CELL_HEIGHT // 2,
+        )
+    )
+    assert app.sheet._active_editor is not None
+    app.sheet._active_editor.delete(0, tk.END)
+    app.sheet._active_editor.insert(0, 'Renamed group')
+    app.sheet.canvas.event_generate(
+        '<Button-1>',
+        x=ROW_HEADER_WIDTH + CELL_WIDTH + CELL_WIDTH // 2,
+        y=COLUMN_HEADER_HEIGHT + group_row * CELL_HEIGHT + CELL_HEIGHT // 2,
+    )
+    app.root.update()
+
+    assert app.state.dataset.samples[0].group == 'Renamed group'
+    assert app.state.dataset.samples[1].group == 'Renamed group'
+    assert app._undo()
+    assert app.state.dataset.samples[0].group == original_group
+    assert app.sheet.table is not None
+    restored_header = app.sheet.table.iat[group_row, 1]
+    original_header = original_workbook.iat[group_row, 1]
+    assert pd.isna(restored_header) == pd.isna(original_header)
+    if not pd.isna(original_header):
+        assert restored_header == original_header
+    assert app._redo()
+    assert app.state.dataset.samples[0].group == 'Renamed group'
+
+    original_order = app.state.visible_order
+    renamed_sample = app.state.dataset.samples[1].name
+    app.sheet._start_edit(condition_row, 2)
+    assert app.sheet._active_editor is not None
+    app.sheet._active_editor.delete(0, tk.END)
+    app.sheet._active_editor.insert(0, 'Renamed sample')
+    app.sheet._commit_edit()
+
+    expected_order = list(original_order)
+    expected_order[expected_order.index(renamed_sample)] = 'Renamed sample'
+    assert app.state.visible_order == tuple(expected_order)
+    assert app._undo()
+    assert app.state.dataset.samples[0].group == 'Renamed group'
+    assert 'Renamed sample' not in app.state.visible_order
+    assert app._redo()
+    assert app.state.visible_order == tuple(expected_order)
+    assert read_table(INPUT_FILE).equals(original_workbook)
 
 
 def test_the_list_has_a_column_for_each_name(app: GraphPadApp) -> None:

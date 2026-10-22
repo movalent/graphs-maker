@@ -414,7 +414,34 @@ def read_dataset(
             chosen columns fall outside the sheet.
 
     """
-    table = read_table(path)
+    return read_dataset_from_table(read_table(path), path, layout, columns)
+
+
+def read_dataset_from_table(
+    table: pd.DataFrame,
+    path: Path,
+    layout: SheetLayout | None = None,
+    columns: Sequence[int] | None = None,
+) -> Dataset:
+    """Parse a worksheet table into a dataset without rereading its source workbook.
+
+    This is used by the data preview after a session-only edit, so the graph is rebuilt from
+    the edited table while the workbook on disk remains unchanged.
+
+    Args:
+        table: The trimmed worksheet table to parse.
+        path: Source workbook path, used for layout and warning messages.
+        layout: Rows to read the names and measurements from. Detected when omitted.
+        columns: Worksheet columns to read, zero based and counting the label column.
+
+    Returns:
+        The parsed dataset with one :class:`~src.models.Sample` per measured column.
+
+    Raises:
+        ExcelLayoutError: If the layout or selected columns fall outside the table, or no
+            group row can be detected when no layout is provided.
+
+    """
     chosen = layout if layout is not None else detect_layout(table, path)
     _check_layout(chosen, len(table), path)
     wanted = _chosen_columns(columns, table.shape[1], path)

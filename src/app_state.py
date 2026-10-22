@@ -118,6 +118,7 @@ class _StateSnapshot:
     sheet_order: tuple[str, ...]
     sheet_series_order: tuple[str, ...]
     preview_assignment: tuple[tuple[str, tuple[int, ...]], ...]
+    preview_edits: tuple[tuple[int, int, str], ...]
 
 
 class AppState:
@@ -134,6 +135,7 @@ class AppState:
             this, so a column can be left out of the graph without editing the sheet.
         preview_assignment: Worksheet roles chosen in the data preview, kept with history
             so a restored graph and its preview describe the same selection.
+        preview_edits: Session-only cell edits to the worksheet preview, kept with history.
 
     """
 
@@ -151,6 +153,7 @@ class AppState:
         self.sheet_order = tuple(sample.name for sample in dataset.samples)
         self.sheet_series_order = tuple(series.name for series in dataset.series)
         self.preview_assignment: tuple[tuple[str, tuple[int, ...]], ...] = ()
+        self.preview_edits: tuple[tuple[int, int, str], ...] = ()
         self._undo_stack: list[_StateSnapshot] = []
         self._redo_stack: list[_StateSnapshot] = []
         self._coalescing_edit: object | None = None
@@ -171,6 +174,7 @@ class AppState:
             sheet_order=self.sheet_order,
             sheet_series_order=self.sheet_series_order,
             preview_assignment=self.preview_assignment,
+            preview_edits=self.preview_edits,
         )
 
     def _restore(self, snapshot: _StateSnapshot) -> None:
@@ -181,6 +185,7 @@ class AppState:
         self.sheet_order = snapshot.sheet_order
         self.sheet_series_order = snapshot.sheet_series_order
         self.preview_assignment = snapshot.preview_assignment
+        self.preview_edits = snapshot.preview_edits
         self._coalescing_edit = None
         self._history_current = self._snapshot()
 
@@ -203,6 +208,18 @@ class AppState:
         """
         self.preview_assignment = tuple(
             (role, tuple(indices)) for role, indices in assignment.items()
+        )
+
+    def set_preview_edits(self, edits: Mapping[tuple[int, int], str]) -> None:
+        """Remember session-only worksheet cell edits in a stable, comparable form.
+
+        Args:
+            edits: Cell coordinates mapped to their replacement text.
+
+        """
+        self.preview_edits = tuple(
+            (row, column, text)
+            for (row, column), text in sorted(edits.items())
         )
 
     def record_edit(self, coalesce: object | None = None) -> bool:

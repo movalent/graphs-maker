@@ -166,6 +166,7 @@ class SheetView(ttk.Frame):
         self,
         master: tk.Misc,
         on_change: Callable[[], None] | None = None,
+        on_cell_edit: Callable[[int, int, str], None] | None = None,
     ) -> None:
         """Build the empty grid.
 
@@ -173,10 +174,13 @@ class SheetView(ttk.Frame):
             master: The widget the pane is packed into.
             on_change: Called whenever the user picks different columns or a different x
                 row, so the window can re-read the sheet and redraw the graph.
+            on_cell_edit: Called with the worksheet row, column, and new text when a name
+                cell is committed.
 
         """
         super().__init__(master)
         self._on_change = on_change
+        self._on_cell_edit = on_cell_edit
         self.table: pd.DataFrame | None = None
         self.columns: tuple[int, ...] = ()
         self.x_row: int | None = None
@@ -207,6 +211,14 @@ class SheetView(ttk.Frame):
 
         self.canvas.bind('<Configure>', lambda _e: self._draw())
         self.canvas.bind('<Button-1>', self._on_click)
+        self.canvas.bind('<Double-Button-1>', self._on_double_click)
+        self.canvas.bind('<Motion>', self._on_motion)
+
+        self._active_editor: tk.Entry | None = None
+        self._edit_row: int | None = None
+        self._edit_col: int | None = None
+        self._original_value: str = ""
+        self._canvas_edit_binding: str | None = None
         # The roles sit beside the grid, so a pick and the use it was given are read together.
         self._role_frame = ttk.Frame(self)
         ttk.Label(self._role_frame, text='Use for:', font=('Segoe UI', 8)).pack(anchor=tk.W)
@@ -227,6 +239,8 @@ class SheetView(ttk.Frame):
             table: The trimmed worksheet table, or ``None`` when no file is loaded.
 
         """
+        if self._active_editor is not None:
+            self._cleanup_editor()
         self.table = table
         self._draw()
 
@@ -465,6 +479,128 @@ class SheetView(ttk.Frame):
             if 0 <= row < min(len(self.table.index), MAX_PREVIEW_ROWS):
                 self._toggle_pending(self._pending_rows, row)
                 self._draw()
+
+    def _on_motion(self, event: tk.Event[tk.Misc]) -> None:
+        """Change cursor to indicate editable cells on hover."""
+        if self.table is None or self._active_editor is not None:
+            return
+        left = self.canvas.canvasx(event.x)
+        top = self.canvas.canvasy(event.y)
+        if top >= COLUMN_HEADER_HEIGHT and left >= ROW_HEADER_WIDTH:
+            row = int((top - COLUMN_HEADER_HEIGHT) // CELL_HEIGHT)
+            col = LABEL_COLUMN + 1 + int((left - ROW_HEADER_WIDTH) // CELL_WIDTH)
+            if self._is_editable_cell(row, col):
+                self.canvas.config(cursor='ibeam')
+                return
+        self.canvas.config(cursor='')
+
+    def _on_double_click(self, event: tk.Event[tk.Misc]) -> None:
+        """Start inline editing if the clicked cell has an editable role."""
+        if self.table is None or self._active_editor is not None:
+            return
+        left = self.canvas.canvasx(event.x)
+        top = self.canvas.canvasy(event.y)
+        if top < COLUMN_HEADER_HEIGHT or left < ROW_HEADER_WIDTH:
+            return
+        row = int((top - COLUMN_HEADER_HEIGHT) // CELL_HEIGHT)
+        col = LABEL_COLUMN + 1 + int((left - ROW_HEADER_WIDTH) // CELL_WIDTH)
+        if (
+            0 <= row < min(len(self.table.index), MAX_PREVIEW_ROWS)
+            and col < self.table.shape[1]
+            and self._is_editable_cell(row, col)
+        ):
+            self._start_edit(row, col)
+
+    def _is_editable_cell(self, row: int, col: int) -> bool:
+        """Return True if the cell at (row, col) has an editable role (GROUP or CONDITIONS)."""
+        if (
+            self.table is None
+            or not 0 <= row < min(len(self.table.index), MAX_PREVIEW_ROWS)
+            or not LABEL_COLUMN < col < self.table.shape[1]
+        ):
+            return False
+        for role in (Role.GROUP, Role.CONDITIONS):
+            assigned = self.assignment.get(role)
+            if assigned and row == assigned[0]:
+                return True
+        return False
+
+    def _start_edit(self, row: int, col: int) -> None:
+        """Overlay an Entry widget on the specified cell for inline editing."""
+        if self.table is None or not self._is_editable_cell(row, col):
+            return
+
+        text = cell_text(self.table.iat[row, col])
+        if self.assignment.get(Role.GROUP) == (row,):
+            text = next(
+                (
+                    cell_text(self.table.iat[row, index])
+                    for index in range(col, LABEL_COLUMN, -1)
+                    if cell_text(self.table.iat[row, index])
+                ),
+                '',
+            )
+        self._original_value = text
+
+        x: float = ROW_HEADER_WIDTH + (col - LABEL_COLUMN - 1) * CELL_WIDTH
+        y: float = COLUMN_HEADER_HEIGHT + row * CELL_HEIGHT
+        x -= self.canvas.canvasx(0)
+        y -= self.canvas.canvasy(0)
+
+        editor = tk.Entry(self.canvas, borderwidth=1, highlightthickness=1, relief='solid')
+        editor.insert(0, text)
+        editor.select_range(0, tk.END)
+        editor.place(x=x, y=y, width=CELL_WIDTH, height=CELL_HEIGHT)
+        editor.bind('<Return>', self._commit_edit)
+        editor.bind('<KP_Enter>', self._commit_edit)
+        editor.bind('<Escape>', self._cancel_edit)
+        editor.bind('<FocusOut>', self._commit_edit)
+        self._active_editor = editor
+        self._edit_row = row
+        self._edit_col = col
+        self._canvas_edit_binding = self.canvas.bind('<Button-1>', self._commit_edit, add='+')
+        editor.focus_set()
+
+    def _commit_edit(self, event: object = None) -> str | None:
+        """Commit the editor text and notify the owner when it changed."""
+        if self._active_editor is None or self.table is None:
+            return 'break' if event is not None else None
+        if self._edit_row is None or self._edit_col is None:
+            return 'break' if event is not None else None
+
+        new_text = self._active_editor.get()
+        row, column = self._edit_row, self._edit_col
+        changed = new_text != self._original_value
+        self._cleanup_editor()
+        if changed:
+            if self._on_cell_edit is not None:
+                self._on_cell_edit(row, column, new_text)
+            else:
+                self.table.iat[row, column] = new_text
+                self._draw()
+        return 'break' if event is not None else None
+
+    def _cancel_edit(self, event: object = None) -> str | None:
+        """Discard changes and remove editor."""
+        self._cleanup_editor()
+        self._draw()
+        return 'break' if event is not None else None
+
+    def _cleanup_editor(self) -> None:
+        """Destroy the active editor and reset state."""
+        if self._active_editor is not None:
+            self._active_editor.unbind('<Return>')
+            self._active_editor.unbind('<KP_Enter>')
+            self._active_editor.unbind('<Escape>')
+            self._active_editor.unbind('<FocusOut>')
+            self._active_editor.destroy()
+            self._active_editor = None
+        if self._canvas_edit_binding is not None:
+            self.canvas.unbind('<Button-1>', self._canvas_edit_binding)
+            self._canvas_edit_binding = None
+        self._edit_row = None
+        self._edit_col = None
+        self._original_value = ""
 
     def _toggle_pending(self, pending: set[int], index: int) -> None:
         """Add or remove one cell from what the user has picked.

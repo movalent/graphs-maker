@@ -25,10 +25,12 @@ from src.app_state import AppState
 from src.excel_reader import (
     ExcelLayoutError,
     SheetLayout,
+    cell_text,
     detect_layout,
     detect_scatter_layout,
     parse_columns,
     read_dataset,
+    read_dataset_from_table,
     read_table,
     read_xy,
 )
@@ -258,7 +260,7 @@ class DataPaneMixin(_AppBase):
             foreground='#666666',
         )
         self.sheet_caption.pack(anchor=tk.W, padx=4, pady=(3, 0))
-        self.sheet = SheetView(box, self._on_sheet_changed)
+        self.sheet = SheetView(box, self._on_sheet_changed, self._on_sheet_cell_edited)
         self.sheet.pack(fill=tk.BOTH, expand=True, padx=4, pady=(2, 4))
     def _sync_sheet_pane(self) -> None:
         """Show the loaded worksheet in the preview and mark what is being plotted.
@@ -287,7 +289,7 @@ class DataPaneMixin(_AppBase):
 
     def _sync_preview_from_state(self) -> None:
         """Restore the sheet table, roles and selection represented by the current snapshot."""
-        table = self.sheet.table
+        table = self._current_table()
         self.sheet.set_table(table)
         if table is None:
             self.sheet_caption.configure(text=NO_FILE)
@@ -344,17 +346,104 @@ class DataPaneMixin(_AppBase):
         else:
             self._apply_column_selection()
 
+    def _on_sheet_cell_edited(self, row: int, column: int, text: str) -> None:
+        """Apply a sample or group rename to the in-memory worksheet and graph."""
+        if self.syncing or self.input_path is None:
+            return
+        table = self.sheet.table
+        if table is None:
+            return
+
+        previous_edits = {
+            (edit_row, edit_column): value for edit_row, edit_column, value in self.state.preview_edits
+        }
+        edits = dict(previous_edits)
+        group_row = self.sheet.role_row(Role.GROUP)
+        if group_row == row:
+            group_start = column
+            while (
+                group_start > 1
+                and not cell_text(table.iat[row, group_start])
+            ):
+                group_start -= 1
+            column = group_start
+
+        edits[(row, column)] = text
+        candidate = table.copy(deep=True)
+        candidate.iat[row, column] = text
+
+        if self.state.config.chart == 'scatter':
+            previous_series_row = self.series_var.get()
+            self.syncing = True
+            try:
+                self.series_var.set(str(row + 1))
+            finally:
+                self.syncing = False
+            self.state.set_preview_edits(edits)
+            if not self._update_xy_from_table(candidate):
+                self.state.set_preview_edits(previous_edits)
+                self.syncing = True
+                try:
+                    self.series_var.set(previous_series_row)
+                finally:
+                    self.syncing = False
+                return
+            self.sheet.set_table(candidate)
+            return
+
+        layout = self._layout_from_roles(candidate)
+        if layout is None:
+            messagebox.showerror(
+                'Cannot rename this row',
+                'There must be at least one measurement row below the assigned name rows.',
+                parent=self.root,
+            )
+            return
+        try:
+            dataset = read_dataset_from_table(candidate, self.input_path, layout, self.sheet.columns)
+        except (ExcelLayoutError, ValueError) as error:
+            messagebox.showerror('Cannot read the edited sheet', str(error), parent=self.root)
+            return
+        if not dataset.samples:
+            messagebox.showerror(
+                'Cannot rename this row',
+                'The selected columns do not contain any measurements.',
+                parent=self.root,
+            )
+            return
+
+        self.state.set_preview_edits(edits)
+        self.sheet.set_table(candidate)
+        if len(self.state.dataset.samples) == len(dataset.samples):
+            renamed = {
+                previous.name: current.name
+                for previous, current in zip(self.state.dataset.samples, dataset.samples, strict=True)
+            }
+            self.state.config.sample_order = tuple(
+                renamed.get(name, name) for name in self.state.config.sample_order
+            )
+        self.state.replace_dataset(dataset)
+        self.state.set_columns(self.sheet.columns)
+        self._refresh_list()
+        self._refresh_groups()
+        self._on_row_selected(_SYNTHETIC_EVENT)
+        self._describe_column_selection()
+        self.redraw()
+
     def _update_xy(self, _event: object = None) -> None:
+        """Re-read the current worksheet as a scatter plot."""
+        self._update_xy_from_table(self._current_table())
+
+    def _update_xy_from_table(self, table: pd.DataFrame | None) -> bool:
         """Re-read the sheet as a scatter plot using the rows and columns that were named.
 
         A choice that cannot be read is reported and the previous graph is kept, rather than
         replacing a working graph with a broken one.
         """
         if self.syncing or self.state.config.chart != 'scatter':
-            return
-        table = self._current_table()
+            return False
         if table is None:
-            return
+            return False
         direction = label_to(X_DIRECTIONS, X_DIRECTION_LABELS, self.x_direction_var.get(), DEFAULT_X_DIRECTION)
         # A row is addressed by its number and a column by its heading, so the field is
         # read the way the chosen direction means it rather than as a number either way.
@@ -372,7 +461,7 @@ class DataPaneMixin(_AppBase):
         y = list(self.sheet.columns)
         if x_at is None:
             self._report_no_x_values()
-            return
+            return False
         series_row = first_of(parse_columns(self.series_var.get()))
         scatter_layout = detect_scatter_layout(table)
         grouped_layout = (
@@ -402,12 +491,12 @@ class DataPaneMixin(_AppBase):
             )
         except (OSError, zipfile.BadZipFile, ExcelLayoutError, ValueError) as error:
             messagebox.showerror('Cannot read the sheet', str(error), parent=self.root)
-            return
+            return False
         if not series:
             messagebox.showerror(
                 'Cannot read the sheet', 'None of the named columns held any points.', parent=self.root
             )
-            return
+            return False
         self.state.dataset = replace(self.state.dataset, series=series, x_label=x_label)
         self.state.config.x_row = x_at if direction == 'row' else None
         self.state.config.x_column = x_at if direction == 'column' else None
@@ -420,6 +509,7 @@ class DataPaneMixin(_AppBase):
         self.sheet.set_selection(self.state.config.x_columns, self.state.config.x_row)
         self._describe_scatter_selection()
         self.redraw()
+        return True
 
     def _report_no_x_values(self) -> None:
         """Say that the sheet has no x values to plot against, and how to name them.
@@ -484,7 +574,7 @@ class DataPaneMixin(_AppBase):
         if layout is None:
             return
         try:
-            dataset = read_dataset(self.input_path, layout, columns=columns)
+            dataset = read_dataset_from_table(table, self.input_path, layout, columns=columns)
         except (OSError, zipfile.BadZipFile, ExcelLayoutError, ValueError) as error:
             messagebox.showerror('Cannot read the sheet', f'{self.input_path.name}\n\n{error}', parent=self.root)
             self.sheet.select_all_columns()
@@ -504,6 +594,7 @@ class DataPaneMixin(_AppBase):
         self._on_row_selected(_SYNTHETIC_EVENT)
         self._describe_column_selection()
         self.redraw()
+        # self.state.record_edit()
     def _apply_scatter_selection(self) -> None:
         """Rebuild the scatter plot from the columns and the x row picked in the preview.
 
@@ -534,6 +625,7 @@ class DataPaneMixin(_AppBase):
                 self.syncing = False
         self._update_xy()
         self._describe_scatter_selection()
+        # self.state.record_edit()
     def _layout_from_roles(self, table: pd.DataFrame) -> SheetLayout | None:
         """Build the rows to read the sheet by from the roles given in the preview.
 
@@ -624,9 +716,13 @@ class DataPaneMixin(_AppBase):
         if self.input_path is None:
             return None
         try:
-            return read_table(self.input_path)
+            table = read_table(self.input_path)
         except (OSError, zipfile.BadZipFile, ValueError):
             return None
+        for row, column, text in self.state.preview_edits:
+            if 0 <= row < len(table.index) and 0 <= column < table.shape[1]:
+                table.iat[row, column] = text
+        return table
     def load_file(self, path: Path) -> bool:
         """Read a workbook and show it, keeping the current data if the read fails.
 

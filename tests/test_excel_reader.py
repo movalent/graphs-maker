@@ -15,6 +15,7 @@ from src.excel_reader import (
     cell_number,
     detect_scatter_layout,
     read_dataset,
+    read_dataset_from_table,
     read_table,
     read_xy,
     xy_column_labels,
@@ -148,6 +149,19 @@ def test_detects_the_rows_of_the_real_sheet() -> None:
 def test_an_explicit_layout_reads_the_same_sheet(real_dataset: Dataset) -> None:
     """Pointing at the detected rows must give exactly the dataset the reader found itself."""
     assert read_dataset(INPUT_FILE, SheetLayout(0, 1, 2)) == real_dataset
+
+
+def test_a_dataset_can_be_read_from_an_edited_preview_table(real_dataset: Dataset) -> None:
+    table = read_table(INPUT_FILE)
+    table.iat[0, 1] = 'Renamed group'
+    table.iat[1, 1] = 'Renamed sample'
+
+    edited = read_dataset_from_table(table, INPUT_FILE, SheetLayout(0, 1, 2))
+
+    assert edited.samples[0].name == 'Renamed sample'
+    assert edited.samples[0].group == 'Renamed group'
+    assert edited.samples[1].group == 'Renamed group'
+    assert read_dataset(INPUT_FILE) == real_dataset
 
 
 def test_rows_can_be_chosen_where_there_are_no_markers(tmp_path: Path) -> None:
