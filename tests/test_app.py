@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import struct
 import subprocess
 import sys
 import tkinter as tk
@@ -14,7 +15,9 @@ from typing import TYPE_CHECKING, Any
 
 import pandas as pd
 import pytest
+from matplotlib import rcParams
 from matplotlib.colors import to_hex
+from matplotlib.image import imread
 from matplotlib.text import Text
 from src.app_state import DEFAULT_LINE_WIDTH, HATCH_LABELS, HATCH_PATTERNS, AppState
 from src.excel_reader import read_table
@@ -57,6 +60,7 @@ def _stub_dialogs(monkeypatch: pytest.MonkeyPatch) -> None:
     for name in ('showerror', 'showwarning', 'showinfo'):
         monkeypatch.setattr(data_pane.messagebox, name, lambda *_a, **_k: None)
     monkeypatch.setattr(data_pane.messagebox, 'askyesno', lambda *_a, **_k: True)
+    monkeypatch.setattr(data_pane.messagebox, 'askyesnocancel', lambda *_a, **_k: False)
 
 
 @pytest.fixture(autouse=True)
@@ -1642,18 +1646,69 @@ def test_saving_uses_the_natural_figure_size(
     tmp_path: Path,
 ) -> None:
     saved_sizes: list[tuple[float, float]] = []
+    save_options: list[dict[str, object]] = []
+    prompt_options: list[dict[str, object]] = []
     figure = app.canvas.figure
     natural_size = app._natural_figure_size
     figure.set_size_inches(natural_size[0] * 0.75, natural_size[1] * 0.75, forward=False)
 
-    def record_save_size(_path: Path) -> None:
+    def record_save_size(_path: Path, **kwargs: object) -> None:
         saved_sizes.append(tuple(float(value) for value in figure.get_size_inches()))
+        save_options.append(kwargs)
+
+    def choose_white(*_args: object, **kwargs: object) -> bool:
+        prompt_options.append(kwargs)
+        return False
 
     monkeypatch.setattr(figure, 'savefig', record_save_size)
     monkeypatch.setattr(shell.filedialog, 'asksaveasfilename', lambda **_kwargs: str(tmp_path / 'graph.pdf'))
+    monkeypatch.setattr(shell.messagebox, 'askyesnocancel', choose_white)
     app._save('pdf')
 
     assert saved_sizes == [natural_size]
+    assert save_options == [{'bbox_inches': 'tight', 'transparent': False}]
+    assert prompt_options[0]['default'] == shell.messagebox.NO
+
+
+def test_saving_with_transparency_clears_label_boxes_and_restores_them(
+    app: GraphPadApp,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    target = tmp_path / 'transparent.png'
+    figure = app.canvas.figure
+    label = figure.axes[0].text(0.5, 0.5, 'Label', bbox={'facecolor': 'white', 'alpha': 0.85})
+    patch = label.get_bbox_patch()
+    assert patch is not None
+    original_facecolor = patch.get_facecolor()
+    figure.axes[0].plot([], [], label='Legend')
+    legend_frame = figure.axes[0].legend().get_frame()
+    original_legend_facecolor = legend_frame.get_facecolor()
+    saved_options: list[dict[str, object]] = []
+    saved_facecolors: list[tuple[float, ...]] = []
+    saved_legend_facecolors: list[tuple[float, ...]] = []
+    save_figure = figure.savefig
+
+    def record_save(_path: Path, **kwargs: object) -> None:
+        saved_options.append(kwargs)
+        saved_facecolors.append(patch.get_facecolor())
+        saved_legend_facecolors.append(legend_frame.get_facecolor())
+        save_figure(_path, **kwargs)
+
+    monkeypatch.setattr(figure, 'savefig', record_save)
+    monkeypatch.setattr(shell.filedialog, 'asksaveasfilename', lambda **_kwargs: str(target))
+    monkeypatch.setattr(shell.messagebox, 'askyesnocancel', lambda *_a, **_kwargs: True)
+
+    app._save('png')
+
+    assert saved_options == [{'bbox_inches': 'tight', 'transparent': True}]
+    assert saved_facecolors[0][-1] == 0.0
+    assert saved_legend_facecolors[0][-1] == 0.0
+    assert patch.get_facecolor() == original_facecolor
+    assert legend_frame.get_facecolor() == original_legend_facecolor
+    image = imread(target)
+    assert image.shape[2] == 4
+    assert image[0, 0, 3] == 0.0
 
 
 def test_each_setting_sits_on_the_tab_it_belongs_to(app: GraphPadApp) -> None:
@@ -3314,9 +3369,13 @@ def test_a_scatter_plot_can_be_saved(blank_app: GraphPadApp, monkeypatch: pytest
     monkeypatch.setattr(shell.filedialog, 'asksaveasfilename', lambda **_k: str(target))
     _scatter(blank_app)
     assert blank_app.state.dataset.series
+    natural_size = blank_app._natural_figure_size
     blank_app._save('png')
     assert target.exists()
     assert target.stat().st_size > 0
+    width, height = struct.unpack('>II', target.read_bytes()[16:24])
+    assert width < natural_size[0] * rcParams['savefig.dpi']
+    assert height < natural_size[1] * rcParams['savefig.dpi']
 
 
 def test_the_list_names_the_scatter_series(blank_app: GraphPadApp) -> None:

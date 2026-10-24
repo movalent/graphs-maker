@@ -12,6 +12,8 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
+from matplotlib.text import Text
+
 from src.cli import resolve_output
 from src.ui.base import _SYNTHETIC_EVENT, NO_FILE, PANEL_WIDTH, _AppBase
 from src.ui.widgets import bind_wheel, wheel_units
@@ -365,14 +367,37 @@ class ShellMixin(_AppBase):
         )
         if not target:
             return
+        transparent = messagebox.askyesnocancel(
+            'Export background',
+            'Use a transparent background? Choose No for white.',
+            parent=self.root,
+            default=messagebox.NO,
+        )
+        if transparent is None:
+            return
         path = Path(target)
         path.parent.mkdir(parents=True, exist_ok=True)
         figure = self.canvas.figure
         display_width, display_height = (float(value) for value in figure.get_size_inches())
+        background_patches = [
+            (patch, patch.get_facecolor())
+            for text in figure.findobj(match=Text)
+            if (patch := text.get_bbox_patch()) is not None
+        ]
+        background_patches.extend(
+            (legend.get_frame(), legend.get_frame().get_facecolor())
+            for axes in figure.axes
+            if (legend := axes.get_legend()) is not None
+        )
         figure.set_size_inches(*self._natural_figure_size, forward=False)
         try:
-            figure.savefig(path)
+            if transparent:
+                for patch, _facecolor in background_patches:
+                    patch.set_facecolor('none')
+            figure.savefig(path, bbox_inches='tight', transparent=transparent)
         finally:
+            for patch, facecolor in background_patches:
+                patch.set_facecolor(facecolor)
             figure.set_size_inches(display_width, display_height, forward=False)
             self.canvas.draw_idle()
         self.output_hint = path
