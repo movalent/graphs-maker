@@ -320,7 +320,11 @@ def pair_row(
     return cast('Control', built[0]), cast('Control', built[1])
 
 
-def option_row(parent: tk.Widget, left: OptionSpec, right: OptionSpec) -> None:
+def option_row(
+    parent: tk.Widget,
+    left: OptionSpec,
+    right: OptionSpec,
+) -> tuple[Control | None, Control | None]:
     """Place two label and control pairs side by side to save vertical space.
 
     Both halves are dropdowns, and either slot may be left empty.
@@ -330,8 +334,12 @@ def option_row(parent: tk.Widget, left: OptionSpec, right: OptionSpec) -> None:
         left: Label, variable, values and handler for the left cell, or an empty slot.
         right: The same tuple for the right cell.
 
+    Returns:
+        The left and right controls in the order they were given, or ``None`` for an empty
+        slot.
+
     """
-    _paired_cells(parent, left, right)
+    return _paired_cells(parent, left, right)
 
 
 def number_row(

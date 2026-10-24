@@ -39,7 +39,8 @@ os.environ.setdefault('MKL_THREADING_LAYER', 'SEQUENTIAL')
 
 # ruff: noqa: E402 - the environment and path must be prepared before these imports.
 from src.app_state import AppState
-from src.excel_reader import SheetLayout, read_dataset
+from src.excel_reader import SheetLayout
+from src.models import SAMPLE_CHARTS
 from src.ui.axis_tab import AxisTabMixin
 from src.ui.base import (
     _SYNTHETIC_EVENT,
@@ -116,6 +117,10 @@ class GraphPadApp(ShellMixin, SampleListMixin, DataPaneMixin, GeneralTabMixin, A
 
         """
         self.state = state or AppState(EMPTY_DATASET)
+        is_xy_data = bool(self.state.dataset.series) or self.state.config.chart == 'scatter'
+        self.available_chart_kinds = ('scatter',) if is_xy_data else SAMPLE_CHARTS
+        if is_xy_data:
+            self.state.config.chart = 'scatter'
         self.input_path = input_path
         self.output_hint = output_hint
         self.dirty = False
@@ -256,11 +261,11 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     """
     args = build_parser().parse_args(argv)
-    if args.input is None:
-        GraphPadApp(output_hint=args.output).run()
-        return 0
-    state = AppState(read_dataset(args.input))
-    GraphPadApp(state, args.input, args.output).run()
+    app = GraphPadApp(output_hint=args.output)
+    if args.input is not None and not app.load_file(args.input):
+        app.root.destroy()
+        return 1
+    app.run()
     return 0
 
 

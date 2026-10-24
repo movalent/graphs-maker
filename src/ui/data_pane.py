@@ -39,6 +39,7 @@ from src.models import (
     DEFAULT_X_DIRECTION,
     MAX_DECIMALS,
     MIN_DECIMALS,
+    SAMPLE_CHARTS,
     X_DIRECTION_LABELS,
     X_DIRECTIONS,
     Dataset,
@@ -589,7 +590,6 @@ class DataPaneMixin(_AppBase):
         # selection means nothing is ticked, which the reader already reports on.
         y = list(self.sheet.columns)
         if x_at is None:
-            self._report_no_x_values()
             return False
         series_row = first_of(parse_columns(self.series_var.get()))
         scatter_layout = detect_scatter_layout(table)
@@ -639,26 +639,6 @@ class DataPaneMixin(_AppBase):
         self._describe_scatter_selection()
         self.redraw()
         return True
-
-    def _report_no_x_values(self) -> None:
-        """Say that the sheet has no x values to plot against, and how to name them.
-
-        A sheet with no ``Group`` or ``Condition`` markers cannot be read as a bar graph,
-        so a scatter plot of it draws nothing at all. An empty graph with no explanation
-        reads as a broken program, so the gap is named and the way out is given.
-        """
-        name = self.input_path.name if self.input_path is not None else 'This sheet'
-        messagebox.showinfo(
-            'No x values detected',
-            f'{name} has no x values the program can work out, so a scatter plot cannot be '
-            f'drawn yet.\n\nName them by hand in the Scatter plot controls:\n'
-            f'\u2022 X values \u2014 the number of the row, the number of a column, '
-            f'or \u201cindex\u201d for the left index column.\n'
-            f'\u2022 Series name row number \u2014 the number of the row naming each series.\n\n'
-            f'Say whether the x values run down a Column or across a Row, then tick the '
-            f'columns to plot in the sheet below the graph.',
-            parent=self.root,
-        )
 
     @staticmethod
     def _first_xy_row(
@@ -793,14 +773,7 @@ class DataPaneMixin(_AppBase):
         self.sheet.set_assignment(assignment)
         self.sheet.set_selection(self.sheet.measured_columns(), None)
     def _seed_scatter_fields(self) -> None:
-        """Fill the scatter fields from the sheet, or ask when the sheet gives nothing.
-
-        A sheet carrying the usual markers has nothing to offer a scatter plot, so its x
-        values and series names are worked out here, and the columns to plot are ticked in
-        the preview. When none of them can be, the fields are left empty and the user is
-        told, because an empty graph with no explanation is indistinguishable from a broken
-        one.
-        """
+        """Fill the scatter fields from a recognized XY worksheet layout."""
         table = self._current_table()
         found = None if table is None else detect_scatter_layout(table)
         if found is None:
@@ -812,7 +785,6 @@ class DataPaneMixin(_AppBase):
                 self.syncing = False
             self.sheet.set_selection((), None)
             self._describe_scatter_selection()
-            self._report_no_x_values()
             return
         self.syncing = True
         try:
@@ -860,8 +832,9 @@ class DataPaneMixin(_AppBase):
                 messagebox.showerror('Cannot open file', f'{path.name}\n\n{error}', parent=self.root)
                 return False
 
-        layout = self._remembered_layout.get(path.name)
-        if layout is None:
+        scatter_layout = detect_scatter_layout(table)
+        layout = None if scatter_layout is not None else self._remembered_layout.get(path.name)
+        if layout is None and scatter_layout is None:
             try:
                 layout = detect_layout(table, path)
             except ExcelLayoutError:
@@ -875,6 +848,9 @@ class DataPaneMixin(_AppBase):
             return False
 
         self.state = AppState(dataset)
+        self.available_chart_kinds = ('scatter',) if scatter_layout is not None else SAMPLE_CHARTS
+        if scatter_layout is not None:
+            self.state.config.chart = 'scatter'
         self.state.set_columns(None)
         self.input_path = path
         self.last_dir = str(path.parent)
@@ -890,6 +866,14 @@ class DataPaneMixin(_AppBase):
         self.state.set_preview_assignment(
             {role.value: columns for role, columns in self.sheet.assignment.items()}
         )
+        if scatter_layout is not None:
+            self._seed_scatter_fields()
+            self._refresh_list()
+            self._sync_secondary_y_assignments()
+            self._sync_secondary_y_axis_availability()
+            self._refresh_groups()
+            self._on_row_selected(_SYNTHETIC_EVENT)
+            self.dirty = False
         self.state.clear_history()
         self._warn_about(caught)
         return True

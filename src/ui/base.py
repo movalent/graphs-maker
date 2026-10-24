@@ -28,7 +28,7 @@ if TYPE_CHECKING:
 
     from src.app_state import AppState
     from src.excel_reader import SheetLayout
-    from src.models import ReferenceLine, ReferenceLineOrientation
+    from src.models import ChartKind, ReferenceLine, ReferenceLineOrientation
     from src.sheet_view import SheetView
 
 # The measurements of the window itself, which every part has to agree on and no part owns.
@@ -119,6 +119,8 @@ class _AppBase:
     legend_position_var: tk.StringVar
     # The kind of graph, and the block of fields that only a scatter plot needs.
     chart_var: tk.StringVar
+    chart_combo: ttk.Combobox
+    available_chart_kinds: tuple[ChartKind, ...]
     xy_frame: ttk.Labelframe
     x_direction_var: tk.StringVar
     x_var: tk.StringVar

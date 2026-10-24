@@ -1133,18 +1133,18 @@ def test_choosing_a_horizontal_orientation_moves_the_bars(app: GraphPadApp) -> N
 
 
 def test_the_scatter_controls_appear_only_for_a_scatter_plot(app: GraphPadApp) -> None:
-    """A bar graph has no x values to point at, so the controls would be dead weight."""
-    assert not app.xy_frame.winfo_manager()
-    app.chart_var.set('Scatter plot')
-    app._update_chart()
+    """The detected XY table selects Scatter and offers no incompatible graph types."""
+    assert app.load_file(SCATTER_FILE)
     app.root.update()
     assert app.state.config.chart == 'scatter'
     assert app.xy_frame.winfo_manager()
+    assert tuple(app.chart_combo.cget('values')) == ('Scatter plot',)
     app.chart_var.set('Bar graph')
     app._update_chart()
     app.root.update()
-    assert app.state.config.chart == 'bar'
-    assert not app.xy_frame.winfo_manager()
+    assert app.state.config.chart == 'scatter'
+    assert app.chart_var.get() == 'Scatter plot'
+    assert app.xy_frame.winfo_manager()
 
 
 def test_box_and_violin_can_be_selected_together_in_the_window(app: GraphPadApp) -> None:
@@ -1166,8 +1166,7 @@ def test_box_and_violin_can_be_selected_together_in_the_window(app: GraphPadApp)
 
 
 def test_curve_fit_controls_update_and_sync_scatter_settings(app: GraphPadApp) -> None:
-    app.chart_var.set('Scatter plot')
-    app._update_chart()
+    assert app.load_file(SCATTER_FILE)
     assert app.curve_fit_show_confidence_bars_var.get() is False
     app.curve_fit_enabled_var.set(True)
     app.curve_fit_model_var.set('Polynomial')
@@ -3008,6 +3007,20 @@ def test_input_argument_is_optional() -> None:
     assert build_parser().parse_args(['--input', 'a.xlsx']).input == Path('a.xlsx')
 
 
+def test_main_loads_an_xy_input_as_scatter(monkeypatch: pytest.MonkeyPatch) -> None:
+    from src.app import GraphPadApp, main
+
+    loaded: list[tuple[str, tuple[str, ...]]] = []
+
+    def inspect_app(app: GraphPadApp) -> None:
+        loaded.append((app.state.config.chart, tuple(app.chart_combo.cget('values'))))
+        app.root.destroy()
+
+    monkeypatch.setattr(GraphPadApp, 'run', inspect_app)
+    assert main(['--input', str(SCATTER_FILE)]) == 0
+    assert loaded == [('scatter', ('Scatter plot',))]
+
+
 def test_cli_accepts_the_combined_box_and_violin_chart() -> None:
     from src.cli import build_parser
 
@@ -3046,6 +3059,27 @@ def test_load_file_shows_the_sheet(blank_app: GraphPadApp) -> None:
     assert blank_app.file_var.get() == INPUT_FILE.name
     assert len(blank_app.canvas.figure.axes) == 1
     assert blank_app.dirty is False
+    assert blank_app.state.config.chart == 'bar'
+    assert tuple(blank_app.chart_combo.cget('values')) == (
+        'Bar graph',
+        'Box plot',
+        'Violin plot',
+        'Box + violin',
+    )
+
+
+def test_normal_tables_do_not_offer_scatter(blank_app: GraphPadApp) -> None:
+    assert blank_app.load_file(INPUT_FILE)
+    assert tuple(blank_app.chart_combo.cget('values')) == (
+        'Bar graph',
+        'Box plot',
+        'Violin plot',
+        'Box + violin',
+    )
+    blank_app.chart_var.set('Scatter plot')
+    blank_app._update_chart()
+    assert blank_app.state.config.chart == 'bar'
+    assert blank_app.chart_var.get() == 'Bar graph'
 
 
 @pytest.mark.parametrize(
@@ -3094,14 +3128,14 @@ def test_a_scatter_sheet_is_drawn_without_being_asked_about(
     blank_app: GraphPadApp,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The common tidy shape works itself out, so no dialog may interrupt the switch."""
+    """The common tidy shape selects Scatter automatically without an interrupting dialog."""
     titles = _record_dialogs(monkeypatch)
     assert blank_app.load_file(SCATTER_FILE)
-    titles.clear()
-    blank_app.chart_var.set('Scatter plot')
-    blank_app._update_chart()
     blank_app.root.update()
     assert titles == []
+    assert blank_app.state.config.chart == 'scatter'
+    assert blank_app.dirty is False
+    assert tuple(blank_app.chart_combo.cget('values')) == ('Scatter plot',)
     assert len(blank_app.state.dataset.series) == 5
     assert all(one.n == 6 for one in blank_app.state.dataset.series)
     assert len(blank_app.canvas.figure.axes) == 1
@@ -3110,8 +3144,6 @@ def test_a_scatter_sheet_is_drawn_without_being_asked_about(
 def test_a_scatter_sheet_names_its_series_from_group_and_condition(blank_app: GraphPadApp) -> None:
     """Both merged header rows are included in the series names."""
     assert blank_app.load_file(SCATTER_FILE)
-    blank_app.chart_var.set('Scatter plot')
-    blank_app._update_chart()
     blank_app.root.update()
     names = [one.name for one in blank_app.state.dataset.series]
     assert names == [
@@ -3124,21 +3156,25 @@ def test_a_scatter_sheet_names_its_series_from_group_and_condition(blank_app: Gr
     assert blank_app.series_var.get() == ''
 
 
-def test_a_sheet_with_no_x_values_says_so(
+def test_an_unrecognized_sheet_uses_normal_graph_types_without_a_warning(
     blank_app: GraphPadApp,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    """An empty graph with no explanation reads as a broken program, not as an empty sheet."""
+    """Unrecognized worksheets use the normal-table options without an X-values popup."""
     titles = _record_dialogs(monkeypatch)
     nameless = tmp_path / 'nameless.xlsx'
     pd.DataFrame([['alpha', 'beta'], ['gamma', 'delta']]).to_excel(nameless, index=False, header=False)
     assert blank_app.load_file(nameless)
-    titles.clear()
-    blank_app.chart_var.set('Scatter plot')
-    blank_app._update_chart()
     blank_app.root.update()
-    assert titles == ['No x values detected']
+    assert titles == []
+    assert blank_app.state.config.chart == 'bar'
+    assert tuple(blank_app.chart_combo.cget('values')) == (
+        'Bar graph',
+        'Box plot',
+        'Violin plot',
+        'Box + violin',
+    )
     assert blank_app.x_var.get() == ''
 
 
@@ -3189,8 +3225,6 @@ def test_the_x_values_can_be_read_across_a_row(blank_app: GraphPadApp, tmp_path:
         [['X values', 1.0, 2.0, 4.0], ['Group', 10.0, 20.0, 40.0], ['Group', 12.0, 22.0, 42.0]]
     ).to_excel(path, index=False, header=False)
     assert blank_app.load_file(path)
-    blank_app.chart_var.set('Scatter plot')
-    blank_app._update_chart()
     blank_app.root.update()
     assert blank_app.x_direction_var.get() == 'Row'
     assert blank_app.x_var.get() == '1'
@@ -3480,10 +3514,9 @@ def test_a_text_typed_number_rounds_with_the_rest_of_its_column(blank_app: Graph
 
 
 def _scatter(blank_app: GraphPadApp) -> None:
-    """Load the scatter sheet and switch to it, the common starting point for these."""
+    """Load the XY sheet, which selects Scatter automatically."""
     assert blank_app.load_file(SCATTER_FILE)
-    blank_app.chart_var.set('Scatter plot')
-    blank_app._update_chart()
+    assert blank_app.state.config.chart == 'scatter'
     blank_app.root.update()
 
 
@@ -3531,10 +3564,8 @@ def test_scatter_arrow_buttons_reorder_series_and_legend(blank_app: GraphPadApp)
     assert legend is not None
     assert [text.get_text() for text in legend.get_texts()] == list(expected)
 
-    blank_app.chart_var.set('Bar graph')
-    blank_app._update_chart()
-    blank_app.chart_var.set('Scatter plot')
-    blank_app._update_chart()
+    assert tuple(blank_app.chart_combo.cget('values')) == ('Scatter plot',)
+    assert blank_app.state.config.chart == 'scatter'
     assert blank_app.state.entry_order == expected
     blank_app._select_row(1)
     up.invoke()
@@ -3563,17 +3594,11 @@ def test_scatter_adjustments_mark_the_graph_dirty(blank_app: GraphPadApp) -> Non
 
 
 def test_both_axes_stay_on_screen_for_either_kind_of_graph(blank_app: GraphPadApp) -> None:
-    """The Axis tab always offers both axes.
-
-    A bar graph has no x values to scale, but hiding the block and showing it again as the
-    graph type changes is harder to follow than leaving it there and letting the range be
-    ignored, so the two blocks are fixed parts of the tab.
-    """
+    """The Axis tab always offers both axes for normal and XY table graphs."""
     _scatter(blank_app)
     axis = _captions_in(_tab_frame(blank_app, 1))
     assert {'X axis', 'X max', 'Y axis', 'Y max'} <= axis
-    blank_app.chart_var.set('Bar graph')
-    blank_app._update_chart()
+    assert blank_app.load_file(INPUT_FILE)
     blank_app.root.update()
     assert {'X axis', 'X max', 'Y axis', 'Y max'} <= _captions_in(_tab_frame(blank_app, 1))
 
@@ -3646,29 +3671,14 @@ def test_secondary_y_axis_activation_is_disabled_for_horizontal_bars(app: GraphP
 
 
 def test_the_x_range_is_greyed_out_for_a_bar_graph(blank_app: GraphPadApp) -> None:
-    """A bar graph has no x values to scale, so the fields are shown but not editable.
-
-    They are greyed rather than hidden so the X axis block keeps one shape, and they keep
-    whatever was typed into them, so switching back to a scatter plot does not lose a range
-    that was already worked out.
-    """
+    """The range is editable for XY data and greyed out for normal-table graphs."""
     _scatter(blank_app)
     assert str(blank_app.x_max_entry.cget('state')) == 'normal'
     assert str(blank_app.x_step_entry.cget('state')) == 'normal'
-    blank_app.x_max_var.set('300')
-    blank_app._update_x_axis()
-    blank_app.chart_var.set('Bar graph')
-    blank_app._update_chart()
+    assert blank_app.load_file(INPUT_FILE)
     blank_app.root.update()
     assert str(blank_app.x_max_entry.cget('state')) == 'disabled'
     assert str(blank_app.x_step_entry.cget('state')) == 'disabled'
-    # The value is kept, so going back to a scatter plot restores the range that was set.
-    assert blank_app.x_max_var.get() == '300'
-    blank_app.chart_var.set('Scatter plot')
-    blank_app._update_chart()
-    blank_app.root.update()
-    assert str(blank_app.x_max_entry.cget('state')) == 'normal'
-    assert blank_app.x_max_var.get() == '300'
 
 
 def test_the_label_rotation_belongs_to_the_x_axis(app: GraphPadApp) -> None:
@@ -3831,7 +3841,7 @@ def test_a_typed_y_max_reaches_a_linear_scatter(blank_app: GraphPadApp) -> None:
 
 
 def test_the_per_series_controls_appear_only_for_a_scatter_plot(blank_app: GraphPadApp) -> None:
-    """Connecting points and naming them are decisions a bar never has to make."""
+    """An XY table only offers Scatter, so its per-series controls remain available."""
     _scatter(blank_app)
     _show_bar_style_tab(blank_app)
     blank_app._select_row(0)
@@ -3839,7 +3849,9 @@ def test_the_per_series_controls_appear_only_for_a_scatter_plot(blank_app: Graph
     blank_app.chart_var.set('Bar graph')
     blank_app._update_chart()
     blank_app.root.update()
-    assert not blank_app.series_style_frame.winfo_manager()
+    assert blank_app.state.config.chart == 'scatter'
+    assert blank_app.chart_var.get() == 'Scatter plot'
+    assert blank_app.series_style_frame.winfo_manager()
 
 
 def test_one_series_can_be_connected_from_the_style_panel(blank_app: GraphPadApp) -> None:

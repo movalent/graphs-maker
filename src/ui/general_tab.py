@@ -13,7 +13,6 @@ from tkinter import messagebox, ttk
 
 from src.graphpad_style import DEFAULT_LEGEND_FONT
 from src.models import (
-    CHART_KINDS,
     CHART_LABELS,
     CURVE_EQUATION_POSITION_LABELS,
     CURVE_EQUATION_POSITIONS,
@@ -26,6 +25,7 @@ from src.models import (
     DEFAULT_X_DIRECTION,
     LEGEND_LABELS,
     LEGEND_POSITIONS,
+    SAMPLE_CHARTS,
     TITLE_LABELS,
     TITLE_POSITIONS,
     X_DIRECTION_LABELS,
@@ -75,6 +75,7 @@ class GeneralTabMixin(_AppBase):
         self.legend_font_var.set(str(config.legend_size or DEFAULT_LEGEND_FONT))
         self.legend_font_type_var.set(config.legend_font or DEFAULT_FONT_TYPE)
         self.legend_position_var.set(LEGEND_LABELS[config.legend_position])
+        self.chart_combo.configure(values=tuple(CHART_LABELS[kind] for kind in self.available_chart_kinds))
         self.chart_var.set(CHART_LABELS[config.chart])
         self.connect_var.set(config.connect_points)
         self.point_labels_var.set(config.point_labels)
@@ -121,11 +122,14 @@ class GeneralTabMixin(_AppBase):
         # The sort of graph decides which fields below mean anything: sample summaries
         # read columns of replicates, while scatter plots need the x values named.
         self.chart_var = tk.StringVar(value=CHART_LABELS[DEFAULT_CHART])
-        option_row(
+        chart_combo, _ = option_row(
             tab,
-            ('Graph type', self.chart_var, tuple(CHART_LABELS[kind] for kind in CHART_KINDS), self._update_chart),
+            ('Graph type', self.chart_var, tuple(CHART_LABELS[kind] for kind in SAMPLE_CHARTS), self._update_chart),
             (None, None, (), None),
         )
+        if not isinstance(chart_combo, ttk.Combobox):
+            raise RuntimeError('The Graph type control was not created as a dropdown.')
+        self.chart_combo = chart_combo
 
         # A scatter plot needs to be told where its x values are and which row names the
         # series, which a bar graph never does, so this block only appears for one.
@@ -374,7 +378,18 @@ class GeneralTabMixin(_AppBase):
         """
         if self.syncing:
             return
-        chosen = label_to(CHART_KINDS, CHART_LABELS, self.chart_var.get(), DEFAULT_CHART)
+        fallback = (
+            self.state.config.chart
+            if self.state.config.chart in self.available_chart_kinds
+            else self.available_chart_kinds[0]
+        )
+        chosen = label_to(
+            self.available_chart_kinds,
+            CHART_LABELS,
+            self.chart_var.get(),
+            fallback,
+        )
+        self.chart_var.set(CHART_LABELS[chosen])
         self.state.config.chart = chosen
         self._sync_scatter_panels()
         if chosen == 'scatter':
