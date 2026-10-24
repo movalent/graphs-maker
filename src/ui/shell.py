@@ -357,6 +357,7 @@ class ShellMixin(_AppBase):
             messagebox.showinfo('Nothing to save', 'Open an Excel file first.', parent=self.root)
             return
         suggested = self.output_hint or resolve_output(self.input_path or Path('graph'), None, image_format)
+        suggested = suggested.with_suffix(f'.{image_format}')
         target = filedialog.asksaveasfilename(
             parent=self.root,
             title='Save graph',
@@ -376,6 +377,8 @@ class ShellMixin(_AppBase):
         if transparent is None:
             return
         path = Path(target)
+        if path.suffix.lower() != f'.{image_format}':
+            path = path.with_suffix(f'.{image_format}')
         path.parent.mkdir(parents=True, exist_ok=True)
         figure = self.canvas.figure
         display_width, display_height = (float(value) for value in figure.get_size_inches())
@@ -394,7 +397,7 @@ class ShellMixin(_AppBase):
             if transparent:
                 for patch, _facecolor in background_patches:
                     patch.set_facecolor('none')
-            figure.savefig(path, bbox_inches='tight', transparent=transparent)
+            figure.savefig(path, format=image_format, bbox_inches='tight', transparent=transparent)
         finally:
             for patch, facecolor in background_patches:
                 patch.set_facecolor(facecolor)

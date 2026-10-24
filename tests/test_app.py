@@ -1651,6 +1651,7 @@ def test_saving_uses_the_natural_figure_size(
     figure = app.canvas.figure
     natural_size = app._natural_figure_size
     figure.set_size_inches(natural_size[0] * 0.75, natural_size[1] * 0.75, forward=False)
+    app.output_hint = tmp_path / 'graph.png'
 
     def record_save_size(_path: Path, **kwargs: object) -> None:
         saved_sizes.append(tuple(float(value) for value in figure.get_size_inches()))
@@ -1661,12 +1662,20 @@ def test_saving_uses_the_natural_figure_size(
         return False
 
     monkeypatch.setattr(figure, 'savefig', record_save_size)
-    monkeypatch.setattr(shell.filedialog, 'asksaveasfilename', lambda **_kwargs: str(tmp_path / 'graph.pdf'))
+    dialog_options: list[dict[str, object]] = []
+
+    def choose_path(**kwargs: object) -> str:
+        dialog_options.append(kwargs)
+        return str(tmp_path / str(kwargs['initialfile']))
+
+    monkeypatch.setattr(shell.filedialog, 'asksaveasfilename', choose_path)
     monkeypatch.setattr(shell.messagebox, 'askyesnocancel', choose_white)
     app._save('pdf')
 
     assert saved_sizes == [natural_size]
-    assert save_options == [{'bbox_inches': 'tight', 'transparent': False}]
+    assert save_options == [{'format': 'pdf', 'bbox_inches': 'tight', 'transparent': False}]
+    assert dialog_options[0]['initialfile'] == 'graph.pdf'
+    assert app.output_hint == tmp_path / 'graph.pdf'
     assert prompt_options[0]['default'] == shell.messagebox.NO
 
 
@@ -1701,7 +1710,7 @@ def test_saving_with_transparency_clears_label_boxes_and_restores_them(
 
     app._save('png')
 
-    assert saved_options == [{'bbox_inches': 'tight', 'transparent': True}]
+    assert saved_options == [{'format': 'png', 'bbox_inches': 'tight', 'transparent': True}]
     assert saved_facecolors[0][-1] == 0.0
     assert saved_legend_facecolors[0][-1] == 0.0
     assert patch.get_facecolor() == original_facecolor
