@@ -134,8 +134,8 @@ class AppState:
         columns: Worksheet columns currently read, zero based and counting the label
             column, or ``None`` when every measured column is read. The data preview sets
             this, so a column can be left out of the graph without editing the sheet.
-        preview_assignment: Worksheet roles chosen in the data preview, kept with history
-            so a restored graph and its preview describe the same selection.
+        preview_assignment: Worksheet roles detected for the current data preview, kept
+            with history so a restored graph and its preview describe the same selection.
         preview_edits: Session-only cell edits to the worksheet preview, kept with history.
 
     """
@@ -201,7 +201,7 @@ class AppState:
         return bool(self._redo_stack)
 
     def set_preview_assignment(self, assignment: Mapping[str, Sequence[int]]) -> None:
-        """Remember the worksheet roles chosen in the data preview.
+        """Remember the worksheet roles shown in the data preview.
 
         Args:
             assignment: Role names mapped to the worksheet row or columns carrying them.
@@ -650,7 +650,9 @@ class AppState:
             The override when one is set, otherwise the group from the worksheet.
 
         """
-        return self.config.group_overrides.get(name) or self._sheet_group(name)
+        if name in self.config.group_overrides:
+            return self.config.group_overrides[name]
+        return self._sheet_group(name)
 
     def _sheet_group(self, name: str) -> str:
         """Return the group the sample was read into, ignoring any override."""
@@ -783,21 +785,24 @@ class AppState:
             return False
         moved = False
         for sample in self.samples:
-            if sample.group in names:
+            if self.group_of(sample.name) in names:
                 moved = self.set_group(sample.name, group) or moved
         return moved
 
     def split_sample(self, name: str) -> bool:
-        """Give one sample a group of its own, taking it out of its current group.
+        """Remove one sample from its group.
 
         Args:
-            name: Name of the sample to split off.
+            name: Name of the sample to leave ungrouped.
 
         Returns:
             ``True`` when the sample exists.
 
         """
-        return self.set_group(name, name)
+        if self.index_of(name) < 0:
+            return False
+        self.config.group_overrides[name] = ''
+        return True
 
     def set_line_width(self, target: LineTarget, value: float | None) -> bool:
         """Set the thickness of either the axis lines or the bar lines.

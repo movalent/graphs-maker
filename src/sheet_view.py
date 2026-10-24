@@ -1,11 +1,10 @@
 """A spreadsheet style preview of the imported worksheet, shown under the graph.
 
 The pane is deliberately a plain grid of the raw cells rather than a table of parsed
-samples, because the whole point is to let the user point at the sheet itself: click a
-column heading to leave that column out of the graph, or click a row number to say which
-row carries the x values of a scatter plot. A Treeview is not used because it cannot hold
-a per column highlight down a whole column of rows without rebuilding every row, and
-rebuilding on each click is what makes a large sheet feel slow.
+samples, because the whole point is to let the user see the sheet itself and click a
+column heading to leave that column out of the graph. A Treeview is not used because it
+cannot hold a per column highlight down a whole column of rows without rebuilding every
+row, and rebuilding on each click is what makes a large sheet feel slow.
 """
 
 from __future__ import annotations
@@ -23,8 +22,7 @@ import pandas as pd
 from src.excel_reader import cell_number, cell_text
 from src.models import DEFAULT_DECIMALS
 
-# What a click in the grid means. A bar graph picks columns, a scatter plot picks the x
-# row as well, so the mode decides which highlight is drawn and what a click does.
+# Which kind of sheet is shown. The mode also decides which summary rows are useful.
 SheetMode = Literal['columns', 'x_and_y']
 
 
@@ -37,25 +35,16 @@ class Role(StrEnum):
 
     GROUP = 'Group'
     CONDITIONS = 'Conditions'
-    X_VALUES = 'X values'
     Y_VALUES = 'Y values'
 
-
-# Only the roles the graph being drawn can use are offered, because a role that does
-# nothing is worse than one that is not there: a bar graph has no x values to name, and a
-# scatter plot has no group column to forward fill.
-ROLES_BY_MODE: dict[SheetMode, tuple[Role, ...]] = {
-    'columns': (Role.GROUP, Role.CONDITIONS, Role.Y_VALUES),
-    'x_and_y': (Role.X_VALUES, Role.Y_VALUES, Role.CONDITIONS),
-}
 
 CELL_WIDTH = 92
 CELL_HEIGHT = 20
 # Width of the strip down the left edge, and of the row number at the head of it. The
 # strip carries the description that used to be a column of its own, so it has to be wide
 # enough for a row label such as ``Conc.1, ng/uL`` to be read without being cut short. The
-# row number stays because the scatter controls and the role assignment both address rows
-# by number, and the caption names them the same way.
+# row number stays because the scatter controls address rows by number, and the caption
+# names them the same way.
 ROW_HEADER_WIDTH = 150
 ROW_NUMBER_WIDTH = 26
 COLUMN_HEADER_HEIGHT = 22
@@ -149,10 +138,8 @@ class SheetView(ttk.Frame):
     widget per cell would take seconds to create, and every change of highlight would mean
     rebuilding all of them.
 
-    Clicking a column heading toggles that column in and out of the graph. Clicking a row
-    number sets the row a scatter plot takes its x values from, and clicking it again
-    clears the choice. Both only mean something for their own kind of graph, so
-    :meth:`set_mode` decides which highlight is drawn and which clicks do anything.
+    Clicking a column heading toggles that column in and out of the graph. Role state is
+    supplied by worksheet detection or the chart fields rather than assigned in the preview.
 
     Attributes:
         canvas: The canvas the grid is drawn on.
@@ -188,14 +175,9 @@ class SheetView(ttk.Frame):
         self._mode: SheetMode = 'columns'
         self._syncing = False
         self._decimals: int | None = DEFAULT_DECIMALS
-        # Which rows and columns carry which role, as zero based sheet positions. The group,
-        # conditions and x roles each hold one cell, while the y role holds every measured
-        # column, so the value is a tuple in every case.
+        # Roles inferred from the sheet, as zero based positions. The group, conditions and
+        # x roles each hold one cell, while the y role holds every measured column.
         self.assignment: dict[Role, tuple[int, ...]] = {}
-        # What the user has picked but not yet given a use. It is kept apart from the
-        # assignment so a click never changes the graph on its own.
-        self._pending_rows: set[int] = set()
-        self._pending_columns: set[int] = set()
 
         self.canvas = tk.Canvas(self, highlightthickness=0, borderwidth=0, background=GRID_FACE)
         self._vertical = ttk.Scrollbar(self, orient=tk.VERTICAL, command=self.canvas.yview)
@@ -220,17 +202,6 @@ class SheetView(ttk.Frame):
         self._edit_col: int | None = None
         self._original_value: str = ""
         self._canvas_edit_binding: str | None = None
-        # The roles sit beside the grid, so a pick and the use it was given are read together.
-        self._role_frame = ttk.Frame(self)
-        ttk.Label(self._role_frame, text='Use for:', font=('Segoe UI', 8)).pack(anchor=tk.W)
-        self._role_buttons: dict[Role, ttk.Button] = {}
-        for role in Role:
-            self._role_buttons[role] = ttk.Button(
-                self._role_frame, text=role.value, width=11, command=self._role_command(role)
-            )
-            self._role_buttons[role].pack(fill=tk.X, pady=1)
-        # The panel takes its own grid column, so the grid keeps all the room that is left.
-        self._role_frame.grid(row=0, column=2, rowspan=2, sticky='nw')
         self._draw()
 
     def set_table(self, table: pd.DataFrame | None) -> None:
@@ -253,7 +224,6 @@ class SheetView(ttk.Frame):
 
         """
         self._mode = mode
-        self._sync_role_buttons()
         self._draw()
 
     def set_selection(self, columns: Sequence[int], x_row: int | None) -> None:
@@ -505,13 +475,10 @@ class SheetView(ttk.Frame):
 
         """
         chosen = set(self.columns)
-        pending = self._pending_columns
         for column in range(LABEL_COLUMN + 1, columns):
             left = ROW_HEADER_WIDTH + (column - LABEL_COLUMN - 1) * CELL_WIDTH
             if column in chosen:
                 face, text_color, outline = HEADER_SELECTED_FACE, HEADER_SELECTED_TEXT, HEADER_SELECTED_LINE
-            elif column in pending:
-                face, text_color, outline = ROW_SELECTED_FACE, HEADER_SELECTED_TEXT, ROW_SELECTED_LINE
             else:
                 face, text_color, outline = HEADER_FACE, HEADER_TEXT, GRID_LINE
             self.canvas.create_rectangle(left, 0, left + CELL_WIDTH, COLUMN_HEADER_HEIGHT, fill=face, outline=outline)
@@ -526,13 +493,9 @@ class SheetView(ttk.Frame):
         table = self.table
         for row in range(rows):
             top = COLUMN_HEADER_HEIGHT + row * CELL_HEIGHT
-            # A row is picked either because it has been given a role or because it is
-            # waiting for one, and the two are told apart by the face.
             picked = self._mode == 'x_and_y' and self.x_row == row
-            waiting = row in self._pending_rows
-            marked = picked or waiting
-            face = ROW_SELECTED_FACE if marked else HEADER_FACE
-            outline = ROW_SELECTED_LINE if marked else GRID_LINE
+            face = ROW_SELECTED_FACE if picked else HEADER_FACE
+            outline = ROW_SELECTED_LINE if picked else GRID_LINE
             # The strip is drawn in two parts. The number comes first and stays a fixed
             # width so that the descriptions line up down the column, which is what makes
             # the sheet readable at a glance rather than a ragged list of words.
@@ -577,7 +540,7 @@ class SheetView(ttk.Frame):
     # -- interaction -----------------------------------------------------------------
 
     def _on_click(self, event: tk.Event[tk.Misc]) -> None:
-        """Toggle a column or pick a row, depending on where the click landed.
+        """Toggle a measurement column when its heading is clicked.
 
         The click is translated back into a cell through the canvas scroll offset, so a
         click on a heading still picks the column under the pointer once the grid has been
@@ -598,12 +561,6 @@ class SheetView(ttk.Frame):
             if left >= ROW_HEADER_WIDTH and LABEL_COLUMN < column < self.table.shape[1]:
                 self.toggle_column(column)
             return
-        if left < ROW_HEADER_WIDTH:
-            row = int((top - COLUMN_HEADER_HEIGHT) // CELL_HEIGHT)
-            if 0 <= row < min(len(self.table.index), MAX_PREVIEW_ROWS):
-                self._toggle_pending(self._pending_rows, row)
-                self._draw()
-
     def _on_motion(self, event: tk.Event[tk.Misc]) -> None:
         """Change cursor to indicate editable cells on hover."""
         if self.table is None or self._active_editor is not None:
@@ -654,7 +611,8 @@ class SheetView(ttk.Frame):
         if self.table is None or not self._is_editable_cell(row, col):
             return
 
-        text = cell_text(self.table.iat[row, col])
+        original_value = cell_text(self.table.iat[row, col])
+        text = original_value
         if self.assignment.get(Role.GROUP) == (row,):
             text = next(
                 (
@@ -664,7 +622,7 @@ class SheetView(ttk.Frame):
                 ),
                 '',
             )
-        self._original_value = text
+        self._original_value = original_value
 
         x: float = ROW_HEADER_WIDTH + (col - LABEL_COLUMN - 1) * CELL_WIDTH
         y: float = COLUMN_HEADER_HEIGHT + row * CELL_HEIGHT
@@ -726,28 +684,12 @@ class SheetView(ttk.Frame):
         self._edit_col = None
         self._original_value = ""
 
-    def _toggle_pending(self, pending: set[int], index: int) -> None:
-        """Add or remove one cell from what the user has picked.
-
-        A pick is only a pick until a role is given for it, so the graph is left alone here
-        and only the highlight moves.
-
-        Args:
-            pending: The set of picked rows or columns to change.
-            index: Zero based sheet position.
-
-        """
-        if index in pending:
-            pending.discard(index)
-        else:
-            pending.add(index)
-
     def toggle_column(self, column: int) -> None:
         """Add or remove one column from the graph, and tell the window to re-read.
 
         Clicking a column heading is the whole gesture, so the change is reported straight
-        away rather than waiting for a role to be given. That is what lets a single column
-        be left out of a graph instead of having to name every column that stayed.
+        away. That is what lets a single column be left out of a graph instead of having to
+        name every column that stayed.
 
         The label column is never a measurement, so it is refused rather than offered and
         then dropped. The last remaining column is also refused: a graph with nothing to
@@ -768,62 +710,6 @@ class SheetView(ttk.Frame):
         else:
             chosen.add(column)
         self.columns = tuple(sorted(chosen))
-        # A pending pick of this column is now the opposite of what the user just asked
-        # for, so it is dropped rather than left to tint the heading a second time.
-        self._pending_columns.discard(column)
-        self._draw()
-        self._report()
-
-    def _role_command(self, role: Role) -> Callable[[], None]:
-        """Return the click handler that gives the current pick the given role.
-
-        Args:
-            role: The role the button assigns.
-
-        Returns:
-            A handler taking no arguments, which is what a Tk button expects.
-
-        """
-        return lambda: self.assign(role)
-
-    def _sync_role_buttons(self) -> None:
-        """Show only the roles the graph being drawn can use."""
-        for role, button in self._role_buttons.items():
-            if role in ROLES_BY_MODE[self._mode]:
-                if not button.winfo_manager():
-                    button.pack(fill=tk.X, pady=1)
-            elif button.winfo_manager():
-                button.pack_forget()
-
-    def assign(self, role: Role) -> None:
-        """Give the rows and columns currently picked the given role.
-
-        Picking and assigning are separate steps on purpose: a click selects cells, and only
-        a click on the role says what they are for. A role has one home, so assigning it again
-        moves it rather than adding a second copy.
-
-        Args:
-            role: What the picked cells are to be used for.
-
-        """
-        if self.table is None:
-            return
-        picked = sorted(self._pending_columns) or sorted(self._pending_rows)
-        if not picked:
-            return
-        if role is Role.Y_VALUES:
-            # A graph needs something to draw, and the label column is never a measurement.
-            usable = [column for column in picked if column != LABEL_COLUMN]
-            if not usable:
-                return
-            self.columns = tuple(usable)
-            self.assignment[role] = self.columns
-        else:
-            self.assignment[role] = (picked[0],)
-        if role is Role.CONDITIONS and self._mode == 'x_and_y':
-            self.x_row = None
-        self._pending_rows.clear()
-        self._pending_columns.clear()
         self._draw()
         self._report()
 

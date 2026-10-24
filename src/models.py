@@ -364,8 +364,8 @@ class PlotConfig:
         point_types: Shape each point is drawn as, by the name of the sample or scatter series
             it belongs to. A name with no entry follows ``point_type``, so the whole graph can
             be set at once and a series pulled out of it afterwards.
-        group_overrides: Group each sample is drawn under, by sample name. This lets samples
-            be regrouped without touching the data that was read from the worksheet.
+        group_overrides: Group each sample is drawn under, by sample name. An empty override
+            leaves that sample ungrouped; overrides never change the worksheet data.
         sample_order: Desired sample order, by sample name.
         series_order: Desired scatter-series order, by series name.
         log_axis: Render the value axis on a logarithmic scale.

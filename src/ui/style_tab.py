@@ -337,7 +337,7 @@ class StyleTabMixin(_AppBase):
             self.state.set_group(sample, name)
         self._after_grouping_changed()
     def _ungroup_selection(self, _event: object = None) -> None:
-        """Move every highlighted sample into a group of its own.
+        """Leave every highlighted sample without a group.
 
         Args:
             _event: Unused; the button applies the grouping itself.
@@ -354,6 +354,7 @@ class StyleTabMixin(_AppBase):
         The selection is deliberately left alone: a grouping change moves where a bar is
         drawn, so the samples the user picked are still the ones they picked.
         """
+        self._sync_group_preview()
         self._refresh_list()
         self._refresh_groups()
         self._on_row_selected(_SYNTHETIC_EVENT)
@@ -395,7 +396,7 @@ class StyleTabMixin(_AppBase):
         self.merge_name_var.set('')
         self._after_grouping_changed()
     def _split_group(self, _event: object = None) -> None:
-        """Move every highlighted sample out into a group of its own.
+        """Remove every sample in the checked groups from its group.
 
         Args:
             _event: Unused; the button applies the split itself.
@@ -405,7 +406,7 @@ class StyleTabMixin(_AppBase):
         if not ticked:
             return
         for sample in self.state.samples:
-            if sample.group in ticked:
+            if self.state.group_of(sample.name) in ticked:
                 self.state.split_sample(sample.name)
         self._after_grouping_changed()
     def _apply_hex(self) -> None:

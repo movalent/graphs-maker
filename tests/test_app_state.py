@@ -489,6 +489,13 @@ def test_merging_groups_moves_every_member(state: AppState) -> None:
     assert state.groups() == ('A+B', 'C')
 
 
+def test_merging_uses_current_group_overrides(state: AppState) -> None:
+    state.set_group('Other', 'Renamed')
+    assert state.merge_groups(('A', 'Renamed'), 'Together')
+    assert state.group_of('Control') == 'Together'
+    assert state.group_of('Other') == 'Together'
+
+
 def test_merging_ignores_unknown_group_names(state: AppState) -> None:
     assert state.merge_groups(('B', 'missing'), 'Together')
     assert state.group_of('Other') == 'Together'
@@ -504,12 +511,11 @@ def test_merging_an_unknown_group_alone_moves_nothing(state: AppState) -> None:
     assert state.groups() == ('A', 'B', 'C')
 
 
-def test_splitting_gives_a_sample_its_own_group(state: AppState) -> None:
+def test_splitting_leaves_a_sample_ungrouped(state: AppState) -> None:
     state.merge_groups(('A', 'B'), 'A+B')
     assert state.split_sample('Other')
-    assert state.group_of('Other') == 'Other'
-    # 'Other' keeps its place in the drawing, so its own group sits between the two.
-    assert state.groups() == ('A+B', 'Other', 'C')
+    assert state.group_of('Other') == ''
+    assert state.groups() == ('A+B', 'C')
 
 
 def test_group_override_survives_reordering(state: AppState) -> None:

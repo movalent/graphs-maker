@@ -3,7 +3,8 @@
 Everything that turns a workbook into a picture lives here: reading the file, deciding
 which rows and columns are the measurements, drawing the figure into the window, and
 working out which bar or point a click landed on. The data preview is here too, because
-it is the same table the graph is read from, and a change in one is a change in the other.
+it shows the worksheet the graph is read from, with session-only group assignments layered
+over the source cells.
 """
 
 from __future__ import annotations
@@ -25,6 +26,7 @@ from src.app_state import AppState
 from src.excel_reader import (
     ExcelLayoutError,
     SheetLayout,
+    cell_text,
     detect_layout,
     detect_scatter_layout,
     parse_columns,
@@ -277,6 +279,8 @@ class DataPaneMixin(_AppBase):
         self.sheet_caption.pack(anchor=tk.W, padx=4, pady=(3, 0))
         self.sheet = SheetView(box, self._on_sheet_changed, self._on_sheet_cell_edited)
         self.sheet.pack(fill=tk.BOTH, expand=True, padx=4, pady=(2, 4))
+        self._preview_row_offset = 0
+        self._source_table: pd.DataFrame | None = None
     def _sync_sheet_pane(self) -> None:
         """Show the loaded worksheet in the preview and mark what is being plotted.
 
@@ -285,35 +289,42 @@ class DataPaneMixin(_AppBase):
         every column selected, which is exactly what the reader read on its own.
         """
         table = self._current_table()
+        self._source_table = table
+        self._preview_row_offset = 0
         self.sheet.set_table(table)
         if table is None:
+            self._preview_row_offset = 0
             self.sheet_caption.configure(text=NO_FILE)
             return
         self.sheet.set_mode('x_and_y' if self.state.config.chart == 'scatter' else 'columns')
         # A sheet that carries the usual markers is read correctly without any attention, so
-        # the preview is seeded with the rows the reader found. A sheet without them starts
-        # empty, and stays empty until the user points at the rows.
+        # the preview is seeded with the rows the reader found. A sheet without detectable
+        # markers has no role rows to display.
         self._seed_roles(table)
         if self.state.config.chart == 'scatter':
-            x_row = self.sheet.role_row(Role.X_VALUES)
-            self.sheet.set_selection(self.sheet.columns, x_row)
+            self.sheet.set_selection(self.sheet.columns, self.state.config.x_row)
             self._describe_scatter_selection()
         else:
             self.sheet.select_all_columns()
             self._describe_column_selection()
+        self._sync_group_preview()
 
     def _sync_preview_from_state(self) -> None:
         """Restore the sheet table, roles and selection represented by the current snapshot."""
         table = self._current_table()
+        self._source_table = table
         self.sheet.set_table(table)
         if table is None:
+            self._preview_row_offset = 0
             self.sheet_caption.configure(text=NO_FILE)
             return
         scatter = self.state.config.chart == 'scatter'
         self.sheet.set_mode('x_and_y' if scatter else 'columns')
-        self.sheet.set_assignment(
-            {Role(role): columns for role, columns in self.state.preview_assignment}
-        )
+        assignment = {Role(role): columns for role, columns in self.state.preview_assignment}
+        self._preview_row_offset = int(not scatter and Role.GROUP not in assignment)
+        source_assignment = {
+            role: tuple(row - self._preview_row_offset for row in rows) for role, rows in assignment.items()
+        }
         if scatter:
             self.sheet.set_selection(self.state.config.x_columns, self.state.config.x_row)
         else:
@@ -321,10 +332,110 @@ class DataPaneMixin(_AppBase):
             if columns is None:
                 columns = self.sheet.measured_columns()
             self.sheet.set_selection(columns, None)
+        display_table, display_assignment, self._preview_row_offset = self._group_preview(table, source_assignment)
+        self.sheet.set_table(display_table)
+        self.sheet.set_assignment(display_assignment)
         if scatter:
             self._describe_scatter_selection()
         else:
             self._describe_column_selection()
+
+    def _sync_group_preview(self) -> None:
+        """Show the current sample groups in a preview-only Group row."""
+        if self._source_table is None and self.sheet.table is None:
+            return
+        if self._source_table is None:
+            self._source_table = self._current_table()
+        table = self._source_table
+        if table is None:
+            self._preview_row_offset = 0
+            return
+        source_assignment = {
+            role: tuple(row - self._preview_row_offset for row in rows) for role, rows in self.sheet.assignment.items()
+        }
+        if self.input_path is not None:
+            try:
+                detected = detect_layout(table, self.input_path)
+            except ExcelLayoutError:
+                pass
+            else:
+                if Role.GROUP not in source_assignment and detected.group_row is not None:
+                    source_assignment[Role.GROUP] = (detected.group_row,)
+                if Role.CONDITIONS not in source_assignment and detected.condition_row is not None:
+                    source_assignment[Role.CONDITIONS] = (detected.condition_row,)
+        display_table, display_assignment, self._preview_row_offset = self._group_preview(table, source_assignment)
+        self.sheet.set_table(display_table)
+        self.sheet.set_assignment(display_assignment)
+
+    def _group_preview(
+        self,
+        table: pd.DataFrame,
+        assignment: dict[Role, tuple[int, ...]],
+    ) -> tuple[pd.DataFrame, dict[Role, tuple[int, ...]], int]:
+        """Build a display table with the groups the samples currently use.
+
+        Args:
+            table: The worksheet table with only its saved preview edits applied.
+            assignment: Worksheet roles using source-table row positions.
+
+        Returns:
+            The preview table, its display-row assignments, and the inserted-row offset.
+
+        """
+        if self.state.config.chart == 'scatter':
+            return table, assignment, 0
+        if not table.shape[1]:
+            return table, assignment, 0
+
+        groups_by_column = self._groups_by_column(table, assignment)
+        group_rows = assignment.get(Role.GROUP)
+        if group_rows:
+            display = table.copy(deep=True)
+            for column, group in groups_by_column.items():
+                display.iat[group_rows[0], column] = group
+            return display, assignment, 0
+
+        row: list[object] = [None] * table.shape[1]
+        row[0] = 'Group'
+        for column, group in groups_by_column.items():
+            row[column] = group
+        synthetic = pd.DataFrame([row], columns=table.columns)
+        display = pd.concat((synthetic, table), ignore_index=True)
+        shifted = {role: tuple(index + 1 for index in rows) for role, rows in assignment.items()}
+        return display, shifted, 1
+
+    def _groups_by_column(
+        self,
+        table: pd.DataFrame,
+        assignment: dict[Role, tuple[int, ...]],
+    ) -> dict[int, str]:
+        """Match current sample groups to their worksheet columns."""
+        sample_groups = {sample.name: self.state.group_of(sample.name) for sample in self.state.dataset.samples}
+        if not sample_groups:
+            return {}
+
+        name_rows = assignment.get(Role.CONDITIONS) or assignment.get(Role.GROUP)
+        if name_rows is None and self.input_path is not None:
+            try:
+                layout = detect_layout(table, self.input_path)
+            except ExcelLayoutError:
+                layout = None
+            if layout is not None:
+                name_row = layout.condition_row if layout.condition_row is not None else layout.group_row
+                name_rows = None if name_row is None else (name_row,)
+        if name_rows:
+            row = name_rows[0]
+            matched = {
+                column: sample_groups[name]
+                for column in self.sheet.columns
+                if (name := cell_text(table.iat[row, column])) in sample_groups
+            }
+            if matched:
+                return matched
+
+        if len(sample_groups) != len(self.sheet.columns):
+            return {}
+        return dict(zip(self.sheet.columns, sample_groups.values(), strict=True))
     def _describe_column_selection(self) -> None:
         """Say how many columns of the sheet the bar graph is drawn from."""
         chosen = self.sheet.columns
@@ -353,7 +464,7 @@ class DataPaneMixin(_AppBase):
         self.sheet_caption.configure(text=f'x values: {where}    y series: columns {columns}')
 
     def _on_sheet_changed(self) -> None:
-        """Re-read the sheet for the columns and x row the user just picked in the preview."""
+        """Re-read the sheet when its plotted columns change in the preview."""
         if self.syncing or self.input_path is None:
             return
         if self.state.config.chart == 'scatter':
@@ -365,17 +476,20 @@ class DataPaneMixin(_AppBase):
         """Apply a sample rename or group assignment to the in-memory worksheet and graph."""
         if self.syncing or self.input_path is None:
             return
-        table = self.sheet.table
+        source_row = row - self._preview_row_offset
+        table = self._source_table if self._source_table is not None else self.sheet.table
         if table is None:
+            return
+        if not 0 <= source_row < len(table.index):
             return
 
         previous_edits = {
             (edit_row, edit_column): value for edit_row, edit_column, value in self.state.preview_edits
         }
         edits = dict(previous_edits)
-        edits[(row, column)] = text
+        edits[(source_row, column)] = text
         candidate = table.copy(deep=True)
-        candidate.iat[row, column] = text
+        candidate.iat[source_row, column] = text
 
         if self.state.config.chart == 'scatter':
             previous_series_row = self.series_var.get()
@@ -418,7 +532,6 @@ class DataPaneMixin(_AppBase):
             return
 
         self.state.set_preview_edits(edits)
-        self.sheet.set_table(candidate)
         if len(self.state.dataset.samples) == len(dataset.samples):
             renamed = {
                 previous.name: current.name
@@ -429,6 +542,17 @@ class DataPaneMixin(_AppBase):
             )
         self.state.replace_dataset(dataset)
         self.state.set_columns(self.sheet.columns)
+        if row == self.sheet.role_row(Role.GROUP):
+            for sample, sample_column in zip(self.state.dataset.samples, self.sheet.columns, strict=True):
+                if sample_column == column:
+                    self.state.set_group(sample.name, sample.group)
+                elif sample_column > column and not cell_text(candidate.iat[source_row, sample_column]):
+                    self.state.split_sample(sample.name)
+        if self._source_table is None:
+            self.sheet.set_table(candidate)
+        else:
+            self._source_table = candidate
+            self._sync_group_preview()
         self._refresh_list()
         self._refresh_groups()
         self._on_row_selected(_SYNTHETIC_EVENT)
@@ -594,6 +718,8 @@ class DataPaneMixin(_AppBase):
             return
         self.state.replace_dataset(dataset)
         self.state.set_columns(columns)
+        self._source_table = table
+        self._sync_group_preview()
         self._refresh_list()
         self._refresh_groups()
         self._on_row_selected(_SYNTHETIC_EVENT)
@@ -601,38 +727,17 @@ class DataPaneMixin(_AppBase):
         self.redraw()
         # self.state.record_edit()
     def _apply_scatter_selection(self) -> None:
-        """Rebuild the scatter plot from the columns and the x row picked in the preview.
-
-        The x field in the panel is filled from the grid rather than the other way round, so
-        the two controls always show the same choice, and the existing read path is reused
-        rather than a second implementation of it.
-
-        The x values are not always a grid choice: a tidy sheet is detected with its x
-        values already in the left index, and there is no row to pick. So the columns are
-        applied whatever the x is, and only a row picked in the grid replaces the x.
-        Bailing out because no row carries the role would leave a detected scatter plot
-        unable to lose a series, which is the one thing the grid click is for.
-        """
-        row = self.sheet.role_row(Role.X_VALUES)
+        """Rebuild the scatter plot from the selected columns and existing chart fields."""
         if not self.sheet.columns:
             # Nothing is chosen yet, so there is no graph to draw. The caption already says
             # what to click, and the graph is left as it is rather than being emptied.
             self._describe_scatter_selection()
             return
-        if row is not None:
-            # A row chosen in the grid is the x values running across the sheet, so
-            # the direction follows the pick rather than contradicting it.
-            self.syncing = True
-            try:
-                self.x_direction_var.set(X_DIRECTION_LABELS['row'])
-                self.x_var.set(str(row + 1))
-            finally:
-                self.syncing = False
         self._update_xy()
         self._describe_scatter_selection()
         # self.state.record_edit()
     def _layout_from_roles(self, table: pd.DataFrame) -> SheetLayout | None:
-        """Build the rows to read the sheet by from the roles given in the preview.
+        """Build the rows to read the sheet by from its detected roles.
 
         The first measurement row is not a role of its own: it is everything below the last
         row that carries a name, so a sheet with no group row can still be read once the user
@@ -645,21 +750,25 @@ class DataPaneMixin(_AppBase):
             The rows to read, or ``None`` when the sheet is too short for what was chosen.
 
         """
-        named = [self.sheet.role_row(Role.GROUP), self.sheet.role_row(Role.CONDITIONS)]
+        named = [self._source_role_row(Role.GROUP), self._source_role_row(Role.CONDITIONS)]
         first = max((row for row in named if row is not None), default=-1) + 1
         if not 0 <= first < len(table.index):
             return None
         return SheetLayout(
-            group_row=self.sheet.role_row(Role.GROUP),
-            condition_row=self.sheet.role_row(Role.CONDITIONS),
+            group_row=self._source_role_row(Role.GROUP),
+            condition_row=self._source_role_row(Role.CONDITIONS),
             first_data_row=first,
         )
+
+    def _source_role_row(self, role: Role) -> int | None:
+        """Return a role's row in the worksheet rather than the displayed preview."""
+        row = self.sheet.role_row(role)
+        return None if row is None else row - self._preview_row_offset
     def _seed_roles(self, table: pd.DataFrame) -> None:
         """Show the roles the reader worked out for itself, so the preview starts correct.
 
         A sheet with the usual markers needs no attention, so the roles it implies are shown
-        as given. A sheet without them starts empty, and the graph stays empty until the user
-        points at the rows.
+        in the preview. A sheet without detectable markers has no inferred roles.
 
         Args:
             table: The trimmed worksheet table.
@@ -756,9 +865,8 @@ class DataPaneMixin(_AppBase):
             try:
                 layout = detect_layout(table, path)
             except ExcelLayoutError:
-                # The usual markers are missing, so nothing can be plotted until the rows are
-                # chosen in the preview. The sheet is still opened, empty, so the preview can
-                # be filled from it.
+                # The usual markers are missing, so the sheet opens empty while remaining
+                # available in the preview.
                 layout = None
         try:
             dataset = read_dataset(path, layout) if layout is not None else EMPTY_DATASET

@@ -263,11 +263,14 @@ class _AppBase:
     def _sync_preview_from_state(self) -> None:
         """Restore the worksheet preview from the editable state."""
 
+    def _sync_group_preview(self) -> None:
+        """Refresh the effective sample groups shown in the worksheet preview."""
+
     def _apply_column_selection(self) -> None:
         """Rebuild the bar graph from only the columns left selected in the preview."""
 
     def _apply_scatter_selection(self) -> None:
-        """Rebuild the scatter plot from the columns and the x row picked in the preview."""
+        """Rebuild the scatter plot from the preview columns and chart fields."""
 
     def _update_color_by(self, _event: object = None) -> None:
         """Apply whether colours follow samples or whole groups.

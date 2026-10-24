@@ -249,12 +249,48 @@ def test_editing_blank_group_cell_starts_group_at_clicked_sample(blank_app: Grap
         blank_app.sheet._active_editor.insert(0, group)
         blank_app.sheet._commit_edit()
 
-    samples = blank_app.state.dataset.samples
-    assert [(sample.name, sample.group) for sample in samples] == [
-        ('First', 'First group'),
-        ('Second', 'Second group'),
-        ('Third', 'Second group'),
+    assert [blank_app.state.group_of(name) for name in ('First', 'Second', 'Third')] == [
+        'First group',
+        'Second group',
+        '',
     ]
+    assert blank_app.sheet.table is not None
+    assert blank_app.sheet.table.iat[0, 3] is None
+
+
+def test_repeating_group_name_in_next_column_assigns_that_sample(blank_app: GraphPadApp) -> None:
+    table = pd.DataFrame(
+        [
+            ['Group', None, None, None],
+            ['Condition', 'First', 'Second', 'Third'],
+            ['Replicate 1', 1, 2, 3],
+            ['Replicate 2', 2, 3, 4],
+        ]
+    )
+    blank_app.input_path = INPUT_FILE
+    blank_app.sheet.set_table(table)
+    blank_app.sheet.set_assignment({Role.GROUP: (0,), Role.CONDITIONS: (1,)})
+    blank_app.sheet.set_selection((1, 2, 3), None)
+    blank_app.state.set_columns((1, 2, 3))
+
+    blank_app.sheet._start_edit(0, 1)
+    assert blank_app.sheet._active_editor is not None
+    blank_app.sheet._active_editor.delete(0, tk.END)
+    blank_app.sheet._active_editor.insert(0, 'chomik')
+    blank_app.sheet._commit_edit()
+
+    blank_app.sheet._start_edit(0, 2)
+    assert blank_app.sheet._active_editor is not None
+    assert blank_app.sheet._active_editor.get() == 'chomik'
+    blank_app.sheet._commit_edit()
+
+    assert [blank_app.state.group_of(name) for name in ('First', 'Second', 'Third')] == [
+        'chomik',
+        'chomik',
+        '',
+    ]
+    assert blank_app.sheet.table is not None
+    assert blank_app.sheet.table.iloc[0, 1:].tolist() == ['chomik', 'chomik', None]
 
 
 def test_the_list_has_a_column_for_each_name(app: GraphPadApp) -> None:
@@ -445,23 +481,26 @@ def test_grouping_asks_for_a_sample(app: GraphPadApp) -> None:
     assert app.state.groups() == ('A', 'C')
 
 
-def test_ungrouping_splits_the_selected_samples_into_their_own_groups(app: GraphPadApp) -> None:
+def test_ungrouping_leaves_the_selected_samples_without_groups(app: GraphPadApp) -> None:
     _select_rows(app, 0, 2)
     app.merge_name_var.set('Together')
     app._group_selection()
     _select_rows(app, 0, 2)
     app._ungroup_selection()
-    assert app.state.group_of('Control') == 'Control'
-    assert app.state.group_of('B') == 'B'
-    assert app.state.groups() == ('Control', 'A', 'B')
+    assert app.state.group_of('Control') == ''
+    assert app.state.group_of('B') == ''
+    assert column_values(app, 'group') == ['', 'A', '']
+    assert app.state.groups() == ('A',)
 
 
-def test_ungrouping_splits_samples_from_a_default_worksheet_group(app: GraphPadApp) -> None:
+def test_ungrouping_clears_a_worksheet_group(app: GraphPadApp) -> None:
     _select_rows(app, 0, 1)
     app._ungroup_selection()
-    assert app.state.group_of('Control') == 'Control'
-    assert app.state.group_of('42C') == '42C'
-    assert app.state.groups() == ('Control', '42C', 'C')
+    assert app.state.group_of('Control') == ''
+    assert app.state.group_of('42C') == ''
+    assert column_values(app, 'group') == ['', '', 'C']
+    assert app.state.groups() == ('C',)
+    assert [text.get_text() for text in app.canvas.figure.axes[0].texts] == []
 
 
 def test_ungrouping_asks_for_a_sample(app: GraphPadApp) -> None:
@@ -478,6 +517,84 @@ def test_grouping_updates_the_list_the_checkboxes_and_the_graph(app: GraphPadApp
     assert set(app.group_vars) == {'Together'}
     # The one bar left in group A is a group of one, so it no longer gets a band.
     assert [text.get_text() for text in app.canvas.figure.axes[0].texts] == ['Together']
+
+
+def test_group_preview_row_is_added_when_the_worksheet_has_none(
+    blank_app: GraphPadApp,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The preview can show current groups without adding a row to the workbook."""
+    from src.models import Sample
+
+    table = pd.DataFrame(
+        [
+            ['Condition', 'First', 'Second'],
+            ['Replicate 1', 1, 2],
+            ['Replicate 2', 3, 4],
+        ]
+    )
+    monkeypatch.setattr(data_pane, 'read_table', lambda _path: table.copy(deep=True))
+    blank_app.input_path = INPUT_FILE
+    blank_app.state.replace_dataset(
+        Dataset(
+            samples=(Sample('First', '', (1.0, 3.0)), Sample('Second', '', (2.0, 4.0))),
+            y_label='Value',
+        )
+    )
+    blank_app._sync_sheet_pane()
+    blank_app._refresh_list()
+    _select_rows(blank_app, 0, 1)
+    blank_app.merge_name_var.set('Together')
+    blank_app._group_selection()
+
+    assert blank_app.sheet.table is not None
+    assert blank_app.sheet.table.iloc[0].tolist() == ['Group', 'Together', 'Together']
+    assert blank_app.sheet.table.iloc[1].tolist() == ['Condition', 'First', 'Second']
+    assert table.equals(
+        pd.DataFrame(
+            [
+                ['Condition', 'First', 'Second'],
+                ['Replicate 1', 1, 2],
+                ['Replicate 2', 3, 4],
+            ]
+        )
+    )
+
+
+def test_existing_group_preview_tracks_assignments_without_changing_source(
+    blank_app: GraphPadApp,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Current groups replace source labels only in the displayed table."""
+    table = pd.DataFrame(
+        [
+            ['Group', 'Original', 'Original'],
+            ['Condition', 'First', 'Second'],
+            ['Replicate 1', 1, 2],
+            ['Replicate 2', 3, 4],
+        ]
+    )
+    monkeypatch.setattr(data_pane, 'read_table', lambda _path: table.copy(deep=True))
+    blank_app.input_path = INPUT_FILE
+    blank_app.state.replace_dataset(
+        Dataset(
+            samples=(Sample('First', 'Original', (1.0, 3.0)), Sample('Second', 'Original', (2.0, 4.0))),
+            y_label='Value',
+        )
+    )
+    blank_app._sync_sheet_pane()
+    blank_app._refresh_list()
+    assert blank_app.sheet.table is not None
+    _select_rows(blank_app, 0, 1)
+    blank_app.merge_name_var.set('Together')
+    blank_app._group_selection()
+    assert blank_app.sheet.table.iloc[0].tolist() == ['Group', 'Together', 'Together']
+
+    _select_rows(blank_app, 0, 1)
+    blank_app._ungroup_selection()
+
+    assert blank_app.sheet.table.iloc[0].tolist() == ['Group', '', '']
+    assert table.iloc[0].tolist() == ['Group', 'Original', 'Original']
 
 
 def test_the_selection_survives_a_group_change(app: GraphPadApp) -> None:
@@ -1118,7 +1235,7 @@ def test_a_range_of_rows_or_columns_is_accepted() -> None:
 
 
 def test_there_is_no_row_chooser_button(blank_app: GraphPadApp) -> None:
-    """The rows are chosen in the preview beside the graph, not from a separate dialog."""
+    """The panel has no separate button for choosing worksheet rows."""
     buttons = {
         str(child.cget('text'))
         for child in blank_app.panel.winfo_children()
@@ -1127,16 +1244,17 @@ def test_there_is_no_row_chooser_button(blank_app: GraphPadApp) -> None:
     assert 'Choose rows…' not in buttons
 
 
-def test_the_preview_offers_the_roles_the_graph_can_use(blank_app: GraphPadApp) -> None:
-    """A role the graph cannot use does nothing, so it is not offered at all."""
-    blank_app.sheet.set_mode('columns')
-    shown = {str(button.cget('text')) for button in blank_app.sheet._role_buttons.values() if button.winfo_manager()}
-    assert shown == {'Group', 'Conditions', 'Y values'}
-    blank_app.sheet.set_mode('x_and_y')
-    blank_app.root.update()
-    shown = {str(button.cget('text')) for button in blank_app.sheet._role_buttons.values() if button.winfo_manager()}
-    assert shown == {'X values', 'Y values', 'Conditions'}
-    assert 'Group' not in shown
+def test_the_preview_has_no_manual_role_assignment_controls(blank_app: GraphPadApp) -> None:
+    """Role assignments come from detection and chart fields, not a preview sidebar."""
+    widgets: list[tk.Misc] = [blank_app.sheet]
+    for widget in widgets:
+        widgets.extend(widget.winfo_children())
+    captions = {
+        str(widget.cget('text'))
+        for widget in widgets
+        if widget.winfo_class() in {'TButton', 'TLabel'}
+    }
+    assert {'Use for:', 'Group', 'Conditions', 'X values', 'Y values'}.isdisjoint(captions)
 
 
 def test_a_marked_sheet_arrives_with_its_rows_already_assigned(blank_app: GraphPadApp) -> None:
@@ -1164,24 +1282,25 @@ def test_preview_column_selection_can_be_undone_and_redone(blank_app: GraphPadAp
     assert blank_app.sheet.columns == tuple(column for column in original_columns if column != omitted_column)
 
 
-def test_a_row_pick_only_changes_the_graph_once_it_is_given_a_role(blank_app: GraphPadApp) -> None:
-    """A row is only meaningful once it is named, so picking one re-reads nothing.
-
-    Columns are the opposite: a click there is the whole gesture, because whether a column
-    is plotted needs no further explanation.
-    """
+def test_clicking_a_row_in_the_preview_does_not_assign_a_role(blank_app: GraphPadApp) -> None:
+    """Rows are not tagged by preview clicks after manual role assignment is removed."""
     assert blank_app.load_file(INPUT_FILE)
+    blank_app.sheet.set_mode('x_and_y')
     before = row_count(blank_app)
-    blank_app.sheet._toggle_pending(blank_app.sheet._pending_rows, 0)
+    assignment = dict(blank_app.sheet.assignment)
+    blank_app.sheet._on_click(
+        SimpleNamespace(x=ROW_HEADER_WIDTH // 2, y=COLUMN_HEADER_HEIGHT + CELL_HEIGHT // 2)
+    )
     assert row_count(blank_app) == before
     assert blank_app.sheet.columns == blank_app.sheet.measured_columns()
+    assert blank_app.sheet.assignment == assignment
+    assert blank_app.sheet.x_row is None
 
 
 def test_clicking_a_column_number_takes_its_bar_off_the_graph(blank_app: GraphPadApp) -> None:
     """One click has to leave a single column out, not name the columns that stayed.
 
-    Going through a role button for this would mean naming all seven columns the user
-    wanted to keep, which is why the heading itself is the toggle.
+    The heading itself is the toggle, so the user need only click the column to leave out.
     """
     assert blank_app.load_file(INPUT_FILE)
     assert row_count(blank_app) == 8
@@ -1216,17 +1335,6 @@ def test_the_label_column_is_never_plotted(blank_app: GraphPadApp) -> None:
     blank_app.sheet.toggle_column(0)
     blank_app.root.update()
     assert blank_app.sheet.columns == blank_app.sheet.measured_columns()
-
-
-def test_giving_a_role_re_reads_the_sheet(blank_app: GraphPadApp) -> None:
-    """Giving a y role to fewer columns is a real change, so the graph is redrawn from it."""
-    assert blank_app.load_file(INPUT_FILE)
-    assert row_count(blank_app) == 8
-    blank_app.sheet._pending_columns.update({3, 4})
-    blank_app.sheet.assign(Role.Y_VALUES)
-    blank_app.root.update()
-    assert blank_app.sheet.columns == (3, 4)
-    assert row_count(blank_app) == 2
 
 
 def test_a_sheet_with_markers_is_not_asked_about(blank_app: GraphPadApp) -> None:
@@ -2293,12 +2401,16 @@ def test_merging_needs_two_groups(grouped_app: GraphPadApp) -> None:
     assert grouped_app.state.groups() == ('A', 'B', 'C')
 
 
-def test_splitting_gives_each_sample_its_own_group(app: GraphPadApp) -> None:
-    app.group_vars['A'].set(True)
+def test_splitting_leaves_overridden_group_members_ungrouped(app: GraphPadApp) -> None:
+    app.state.set_group('Control', 'Together')
+    app.state.set_group('42C', 'Together')
+    app._refresh_groups()
+    app.group_vars['Together'].set(True)
     app._split_group()
-    assert app.state.group_of('Control') == 'Control'
-    assert app.state.group_of('42C') == '42C'
-    assert app.state.groups() == ('Control', '42C', 'C')
+    assert app.state.group_of('Control') == ''
+    assert app.state.group_of('42C') == ''
+    assert column_values(app, 'group') == ['', '', 'C']
+    assert app.state.groups() == ('C',)
 
 
 def test_splitting_without_a_tick_changes_nothing(app: GraphPadApp) -> None:
@@ -3087,20 +3199,6 @@ def test_the_x_values_can_be_read_across_a_row(blank_app: GraphPadApp, tmp_path:
     # Three y columns, each pairing the x value above it with the two rows below it.
     assert len(blank_app.state.dataset.series) == 3
     assert all(one.n == 2 for one in blank_app.state.dataset.series)
-
-
-def test_a_picked_row_says_the_x_values_run_across_the_sheet(blank_app: GraphPadApp) -> None:
-    """Choosing a row in the grid must not leave the direction contradicting the choice."""
-    from src.sheet_view import Role
-
-    assert blank_app.load_file(SCATTER_FILE)
-    blank_app.chart_var.set('Scatter plot')
-    blank_app._update_chart()
-    blank_app.root.update()
-    blank_app.sheet.assignment[Role.X_VALUES] = (0,)
-    blank_app._apply_scatter_selection()
-    blank_app.root.update()
-    assert blank_app.x_direction_var.get() == 'Row'
 
 
 def _strip_texts(app: GraphPadApp) -> list[tuple[int, int, str]]:
