@@ -53,6 +53,9 @@ BAR_GAP = 0.25
 INTER_GROUP_GAP = 0.55
 BAND_LINE_Y = -0.10
 BAND_TEXT_Y = -0.17
+# At a quarter turn the sample names reach below their ticks. The group marker gets its
+# own band underneath them, with its offset following the projected label height.
+GROUP_BAND_ROTATION_CLEARANCE = 0.28
 BOTTOM_MARGIN = 0.34
 TOP_MARGIN = 0.86
 # The top of the plot when no legend sits above it, which is the room a legend would have
@@ -124,9 +127,9 @@ RIGHT_MARGIN = 0.98
 # rotated labels and groups on one side, an outside legend or series labels on the other,
 # and the renderer's maximum top and bottom bands. These are capacities, not per-graph
 # measurements, so moving a legend or adding a title never changes the overall figure size.
-CANVAS_LEFT_IN = (LEFT_MARGIN + 2 * ROTATION_MARGIN) * FIGURE_WIDTH
+CANVAS_LEFT_IN = (LEFT_MARGIN + 2.25 * ROTATION_MARGIN) * FIGURE_WIDTH
 CANVAS_RIGHT_IN = max(LABEL_MARGIN_CAP, 1.0 - LEGEND_RIGHT_MARGIN) * FIGURE_WIDTH
-CANVAS_BOTTOM_IN = (BOTTOM_MARGIN + 2 * ROTATION_MARGIN) * FIGURE_HEIGHT
+CANVAS_BOTTOM_IN = (BOTTOM_MARGIN + 2.25 * ROTATION_MARGIN) * FIGURE_HEIGHT
 CANVAS_TOP_IN = (1.0 - MIN_TOP_MARGIN) * FIGURE_HEIGHT
 # A scatter point is drawn larger than a replicate point, because it is the data itself
 # rather than a detail sitting on top of a bar.
@@ -636,24 +639,27 @@ def _right_margin(config: PlotConfig) -> float:
     return RIGHT_MARGIN
 
 
-def _bottom_margin(config: PlotConfig) -> float:
+def _bottom_margin(config: PlotConfig, has_group_bands: bool = False) -> float:
     """Return where the bottom of the plotting area sits, as a share of the height.
 
     Turning the sample names makes them taller, because the text now reaches up and to the
-    side rather than straight down, so the room below the plot has to grow with the turn. An
-    upright graph keeps the margin it has always had.
+    side rather than straight down, so the room below the plot has to grow with the turn.
+    A grouped graph reserves another band below those names for its group markers.
 
     Args:
         config: Settings holding the label rotation.
+        has_group_bands: Whether a named group band is drawn below the sample labels.
 
     Returns:
         The bottom margin for :meth:`~matplotlib.figure.Figure.subplots_adjust`.
 
     """
-    return BOTTOM_MARGIN + ROTATION_MARGIN * abs(config.label_rotation) / 90.0
+    sample_labels = ROTATION_MARGIN * abs(config.label_rotation) / 90.0
+    group_band = _group_band_margin(config) if has_group_bands else 0.0
+    return BOTTOM_MARGIN + sample_labels + group_band
 
 
-def _left_margin(config: PlotConfig) -> float:
+def _left_margin(config: PlotConfig, has_group_bands: bool = False) -> float:
     """Return where the left edge of the plotting area sits, as a share of the width.
 
     A horizontal graph lays the sample names down the side, and turning them widens that
@@ -661,12 +667,20 @@ def _left_margin(config: PlotConfig) -> float:
 
     Args:
         config: Settings holding the label rotation.
+        has_group_bands: Whether a named group band is drawn beside the sample labels.
 
     Returns:
         The left margin for :meth:`~matplotlib.figure.Figure.subplots_adjust`.
 
     """
-    return LEFT_MARGIN + ROTATION_MARGIN * abs(config.label_rotation) / 90.0
+    sample_labels = ROTATION_MARGIN * abs(config.label_rotation) / 90.0
+    group_band = _group_band_margin(config) if has_group_bands else 0.0
+    return LEFT_MARGIN + sample_labels + group_band
+
+
+def _group_band_margin(config: PlotConfig) -> float:
+    """Return the extra outer margin needed when rotated sample labels have a group band."""
+    return ROTATION_MARGIN * abs(math.sin(math.radians(config.label_rotation)))
 
 
 def _apply_title(fig: Figure, ax: Axes, config: PlotConfig) -> None:
@@ -992,6 +1006,7 @@ def _add_group_bands(
     layout: BarLayout,
     line_width: float = DEFAULT_LINE_WIDTH,
     horizontal: bool = False,
+    rotation: float = 0.0,
 ) -> None:
     """Draw the Prism group markers beside the sample names.
 
@@ -1008,8 +1023,12 @@ def _add_group_bands(
         layout: Bar positions and group spans.
         line_width: Thickness of the band lines in points.
         horizontal: Whether the bars run along the x axis instead of the y axis.
+        rotation: Sample-label angle, used to place the group band below rotated names.
 
     """
+    band_offset = GROUP_BAND_ROTATION_CLEARANCE * abs(math.sin(math.radians(rotation)))
+    line_position = BAND_LINE_Y - band_offset
+    text_position = BAND_TEXT_Y - band_offset
     transform = (
         blended_transform_factory(ax.transAxes, ax.transData)
         if horizontal
@@ -1020,7 +1039,7 @@ def _add_group_bands(
             continue
         if horizontal:
             ax.plot(
-                [BAND_LINE_Y, BAND_LINE_Y],
+                [line_position, line_position],
                 [span.left, span.right],
                 transform=transform,
                 clip_on=False,
@@ -1029,7 +1048,7 @@ def _add_group_bands(
                 zorder=2,
             )
             ax.text(
-                BAND_TEXT_Y,
+                text_position,
                 span.center,
                 span.name,
                 transform=transform,
@@ -1042,7 +1061,7 @@ def _add_group_bands(
             continue
         ax.plot(
             [span.left, span.right],
-            [BAND_LINE_Y, BAND_LINE_Y],
+            [line_position, line_position],
             transform=transform,
             clip_on=False,
             color=BAR_EDGE,
@@ -1051,7 +1070,7 @@ def _add_group_bands(
         )
         ax.text(
             span.center,
-            BAND_TEXT_Y,
+            text_position,
             span.name,
             transform=transform,
             clip_on=False,
@@ -1327,7 +1346,8 @@ def plot_bars(dataset: Dataset, config: PlotConfig | None = None) -> Figure:
     # size. A horizontal graph lays them down the side, which is still the x axis turned on
     # its side, so the same size applies either way round.
     _add_sample_labels(ax, layout, samples, horizontal, settings.x_font_size, settings.label_rotation)
-    _add_group_bands(ax, layout, bar_width, horizontal)
+    has_group_bands = any(span.name for span in layout.groups)
+    _add_group_bands(ax, layout, bar_width, horizontal, settings.label_rotation)
     # The axis the bars are laid out along is pinned to their span rather than left to
     # autoscale. Matplotlib sizes a bar chart correctly on its own, but any artist that
     # reaches further out, such as a replicate point drawn at the wrong coordinate, would
@@ -1353,13 +1373,13 @@ def plot_bars(dataset: Dataset, config: PlotConfig | None = None) -> Figure:
     rows = legend_rows(legend_entries(grouped, settings), settings)
     if horizontal:
         fig.subplots_adjust(
-            left=_left_margin(settings),
+            left=_left_margin(settings, has_group_bands),
             right=_right_margin(settings),
             top=_top_margin(settings, rows),
         )
     else:
         fig.subplots_adjust(
-            bottom=_bottom_margin(settings),
+            bottom=_bottom_margin(settings, has_group_bands),
             right=_right_margin(settings),
             top=_top_margin(settings, rows),
         )
@@ -1512,7 +1532,8 @@ def plot_distributions(dataset: Dataset, config: PlotConfig | None = None) -> Fi
 
     _apply_distribution_value_axis(ax, samples, dataset, settings, horizontal)
     _add_sample_labels(ax, layout, samples, horizontal, settings.x_font_size, settings.label_rotation)
-    _add_group_bands(ax, layout, line_width, horizontal)
+    has_group_bands = any(span.name for span in layout.groups)
+    _add_group_bands(ax, layout, line_width, horizontal, settings.label_rotation)
     if horizontal:
         ax.set_ylim(layout.left, layout.right)
     else:
@@ -1532,13 +1553,13 @@ def plot_distributions(dataset: Dataset, config: PlotConfig | None = None) -> Fi
     rows = legend_rows(legend_entries(grouped, settings), settings)
     if horizontal:
         fig.subplots_adjust(
-            left=_left_margin(settings),
+            left=_left_margin(settings, has_group_bands),
             right=_right_margin(settings),
             top=_top_margin(settings, rows),
         )
     else:
         fig.subplots_adjust(
-            bottom=_bottom_margin(settings),
+            bottom=_bottom_margin(settings, has_group_bands),
             right=_right_margin(settings),
             top=_top_margin(settings, rows),
         )

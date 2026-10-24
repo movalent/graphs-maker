@@ -49,7 +49,6 @@ from src.models import (
     XYSeries,
 )
 from src.plotting import (
-    BAND_LINE_Y,
     BAR_EDGE,
     BAR_GAP,
     BAR_WIDTH,
@@ -1000,6 +999,42 @@ def test_splitting_a_group_draws_the_new_group_when_it_holds_several(simple_data
     assert [text.get_text() for text in axes_of(figure).texts] == ['Solo']
 
 
+@pytest.mark.parametrize(
+    ('chart', 'orientation'),
+    (('bar', 'vertical'), ('box', 'vertical'), ('violin', 'vertical'), ('bar', 'horizontal')),
+)
+def test_group_names_clear_rotated_sample_labels(
+    simple_dataset: Dataset,
+    chart: str,
+    orientation: Orientation,
+) -> None:
+    """The group band sits below angled sample names and remains inside the figure."""
+    samples = tuple(
+        replace(sample, name=f'{sample.name} condition with a long label')
+        for sample in simple_dataset.samples
+    )
+    dataset = replace(simple_dataset, samples=samples)
+    figure = plot_dataset(
+        dataset,
+        PlotConfig(chart=chart, orientation=orientation, grouped_layout=True, show_legend=False),
+    )
+    figure.canvas.draw()
+
+    sample_names = {sample.name for sample in samples}
+    sample_labels = [
+        text
+        for text in figure.findobj(Text)
+        if text.get_text() in sample_names and text.get_rotation() == 45.0
+    ]
+    group_labels = axes_of(figure).texts
+    assert sample_labels
+    assert group_labels
+    for group_label in group_labels:
+        group_bounds = group_label.get_window_extent()
+        assert group_bounds.y0 >= figure.bbox.y0
+        assert all(not group_bounds.overlaps(label.get_window_extent()) for label in sample_labels)
+
+
 def test_merging_leaves_no_stray_group_name(simple_dataset: Dataset) -> None:
     """Every bar ends up in the merged group, so that is the only name printed."""
     figure = plot_dataset(
@@ -1377,8 +1412,12 @@ def test_group_band_never_overlaps_its_neighbour() -> None:
 
 
 def band_lines(ax: Axes) -> list[Line2D]:
-    """Return the group lines, identified by the constant y coordinate they are drawn at."""
-    return [line for line in ax.lines if list(line.get_ydata()) == [BAND_LINE_Y, BAND_LINE_Y]]
+    """Return the group lines, which are drawn outside the axes and are not clipped."""
+    return [
+        line
+        for line in ax.lines
+        if not line.get_clip_on() and len(line.get_ydata()) == 2 and line.get_ydata()[0] == line.get_ydata()[1]
+    ]
 
 
 def marker_lines(ax: Axes) -> list[Line2D]:
