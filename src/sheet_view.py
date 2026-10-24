@@ -14,6 +14,7 @@ import math
 import tkinter as tk
 from collections.abc import Callable, Sequence
 from enum import StrEnum
+from statistics import fmean, median, stdev
 from tkinter import ttk
 from typing import Literal
 
@@ -327,15 +328,138 @@ class SheetView(ttk.Frame):
         for row in range(rows):
             self._draw_row(row, columns)
         self._draw_headers(rows, columns)
+        summary_rows = self._summary_rows()
+        display_rows: tuple[tuple[str, tuple[str, ...]], ...] = ()
+        if summary_rows:
+            self._draw_empty_row(rows, columns)
+            display_rows = (
+                ('Min', tuple(self._format_summary_value(value) for value in summary_rows['Min'])),
+                (
+                    'Mean/Median',
+                    tuple(
+                        f'{self._format_summary_value(mean)} / {self._format_summary_value(median_value)}'
+                        if mean is not None and median_value is not None
+                        else ''
+                        for mean, median_value in zip(summary_rows['Mean'], summary_rows['Median'], strict=True)
+                    ),
+                ),
+                ('Max', tuple(self._format_summary_value(value) for value in summary_rows['Max'])),
+                ('SD', tuple(self._format_summary_value(value) for value in summary_rows['SD'])),
+                (
+                    '%CV',
+                    tuple(
+                        f'{self._format_summary_value(value)}%'
+                        if value is not None
+                        else ''
+                        for value in summary_rows['%CV']
+                    ),
+                ),
+            )
+            for offset, (label, values) in enumerate(display_rows):
+                self._draw_summary_row(rows + offset + 1, label, values)
         drawn = max(columns - LABEL_COLUMN - 1, 0)
         self.canvas.configure(
             scrollregion=(
                 0,
                 0,
                 ROW_HEADER_WIDTH + drawn * CELL_WIDTH,
-                COLUMN_HEADER_HEIGHT + rows * CELL_HEIGHT,
+                COLUMN_HEADER_HEIGHT + (rows + len(display_rows) + bool(display_rows)) * CELL_HEIGHT,
             )
         )
+
+    def _summary_rows(self) -> dict[str, tuple[float | None, ...]]:
+        """Calculate normal-table summaries from every numeric value in each column."""
+        if self.table is None or self._mode != 'columns':
+            return {}
+        columns = [
+            [
+                number
+                for value in self.table.iloc[:, column]
+                if (number := cell_number(value)) is not None and math.isfinite(number)
+            ]
+            for column in self.measured_columns()
+        ]
+        return {
+            'Min': tuple(min(values) if values else None for values in columns),
+            'Mean': tuple(fmean(values) if values else None for values in columns),
+            'Median': tuple(median(values) if values else None for values in columns),
+            'Max': tuple(max(values) if values else None for values in columns),
+            'SD': tuple(stdev(values) if len(values) > 1 else 0.0 if values else None for values in columns),
+            '%CV': tuple(
+                stdev(values) / abs(fmean(values)) * 100.0
+                if len(values) > 1 and fmean(values) != 0.0
+                else 0.0
+                if len(values) == 1
+                else None
+                for values in columns
+            ),
+        }
+
+    def _format_summary_value(self, value: float | None) -> str:
+        """Format a numeric statistic using the preview's current decimal setting."""
+        return '' if value is None else _short(value, decimals=self._decimals)
+
+    def _draw_empty_row(self, row: int, columns: int) -> None:
+        """Draw a blank grid row between the source values and their summaries."""
+        top = COLUMN_HEADER_HEIGHT + row * CELL_HEIGHT
+        self.canvas.create_rectangle(0, top, ROW_NUMBER_WIDTH, top + CELL_HEIGHT, fill=HEADER_FACE, outline=GRID_LINE)
+        self.canvas.create_rectangle(
+            ROW_NUMBER_WIDTH,
+            top,
+            ROW_HEADER_WIDTH,
+            top + CELL_HEIGHT,
+            fill=GRID_FACE,
+            outline=GRID_LINE,
+        )
+        for column in range(LABEL_COLUMN + 1, columns):
+            left = ROW_HEADER_WIDTH + (column - LABEL_COLUMN - 1) * CELL_WIDTH
+            self.canvas.create_rectangle(
+                left,
+                top,
+                left + CELL_WIDTH,
+                top + CELL_HEIGHT,
+                fill=GRID_FACE,
+                outline=GRID_LINE,
+            )
+
+    def _draw_summary_row(self, row: int, label: str, values: tuple[str, ...]) -> None:
+        """Draw one summary label and its per-column values beneath the worksheet preview."""
+        top = COLUMN_HEADER_HEIGHT + row * CELL_HEIGHT
+        self.canvas.create_rectangle(0, top, ROW_NUMBER_WIDTH, top + CELL_HEIGHT, fill=HEADER_FACE, outline=GRID_LINE)
+        self.canvas.create_rectangle(
+            ROW_NUMBER_WIDTH,
+            top,
+            ROW_HEADER_WIDTH,
+            top + CELL_HEIGHT,
+            fill=HEADER_FACE,
+            outline=GRID_LINE,
+        )
+        self.canvas.create_text(
+            ROW_NUMBER_WIDTH + 4.0,
+            top + CELL_HEIGHT / 2,
+            anchor=tk.W,
+            text=label,
+            fill=HEADER_TEXT,
+            font=CELL_FONT,
+        )
+        for index, value in enumerate(values):
+            left = ROW_HEADER_WIDTH + index * CELL_WIDTH
+            self.canvas.create_rectangle(
+                left,
+                top,
+                left + CELL_WIDTH,
+                top + CELL_HEIGHT,
+                fill=GRID_FACE,
+                outline=GRID_LINE,
+            )
+            self.canvas.create_text(
+                left + 4.0,
+                top + CELL_HEIGHT / 2,
+                anchor=tk.W,
+                text=value,
+                fill=CELL_TEXT,
+                font=CELL_FONT,
+            )
 
     def _draw_row(self, row: int, columns: int) -> None:
         """Draw the index strip and the data cells of one row.

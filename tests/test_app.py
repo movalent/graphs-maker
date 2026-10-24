@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import subprocess
 import sys
 import tkinter as tk
@@ -3031,6 +3032,82 @@ def _strip_texts(app: GraphPadApp) -> list[tuple[int, int, str]]:
 def _line_at(app: GraphPadApp, y: float) -> list[tuple[int, str]]:
     """Return the grid text on one horizontal band, left to right."""
     return sorted((x, t) for x, top, t in _strip_texts(app) if abs(top - y) < 3)
+
+
+def test_normal_table_preview_shows_column_summary_rows(blank_app: GraphPadApp) -> None:
+    table = pd.DataFrame(
+        [
+            ['first', 1, 2, 'not numeric'],
+            ['second', 3, 4, None],
+            ['text', 'not numeric', None, ''],
+            ['fourth', 9, 8, None],
+        ]
+    )
+    blank_app.sheet.set_table(table)
+
+    assert blank_app.sheet.table is not None
+    assert blank_app.sheet.table.equals(table)
+    statistics = blank_app.sheet._summary_rows()
+    assert statistics['Mean'] == pytest.approx((13 / 3, 14 / 3, None))
+    assert statistics['Median'] == (3.0, 4.0, None)
+    assert statistics['SD'] == pytest.approx((math.sqrt(52 / 3), math.sqrt(28 / 3), None))
+    assert statistics['%CV'] == pytest.approx(
+        (math.sqrt(52 / 3) / (13 / 3) * 100, math.sqrt(28 / 3) / (14 / 3) * 100, None)
+    )
+    for offset, (label, first, second) in enumerate(
+        (
+            ('Min', '1.00', '2.00'),
+            ('Mean/Median', '4.33 / 3.00', '4.67 / 4.00'),
+            ('Max', '9.00', '8.00'),
+            ('SD', '4.16', '3.06'),
+            ('%CV', '96.08%', '65.47%'),
+        )
+    ):
+        y = COLUMN_HEADER_HEIGHT + (len(table.index) + offset + 1.5) * CELL_HEIGHT
+        assert [text for _x, text in _line_at(blank_app, y)] == [label, first, second, '']
+    blank_row_y = COLUMN_HEADER_HEIGHT + (len(table.index) + 0.5) * CELL_HEIGHT
+    assert not _line_at(blank_app, blank_row_y)
+    blank_app.sheet.set_decimals(1)
+    mean_median_y = COLUMN_HEADER_HEIGHT + (len(table.index) + 2.5) * CELL_HEIGHT
+    assert [text for _x, text in _line_at(blank_app, mean_median_y)] == [
+        'Mean/Median',
+        '4.3 / 3.0',
+        '4.7 / 4.0',
+        '',
+    ]
+    sd_y = COLUMN_HEADER_HEIGHT + (len(table.index) + 4.5) * CELL_HEIGHT
+    assert [text for _x, text in _line_at(blank_app, sd_y)] == ['SD', '4.2', '3.1', '']
+    cv_y = COLUMN_HEADER_HEIGHT + (len(table.index) + 5.5) * CELL_HEIGHT
+    assert [text for _x, text in _line_at(blank_app, cv_y)] == ['%CV', '96.1%', '65.5%', '']
+
+
+def test_cv_is_blank_when_mean_is_zero_and_zero_for_one_value(blank_app: GraphPadApp) -> None:
+    blank_app.sheet.set_table(pd.DataFrame([['first', -1, 8], ['second', 1, None]]))
+
+    statistics = blank_app.sheet._summary_rows()
+
+    assert statistics['Mean'] == (0.0, 8.0)
+    assert statistics['SD'] == pytest.approx((math.sqrt(2), 0.0))
+    assert statistics['%CV'] == (None, 0.0)
+
+
+def test_normal_table_preview_reserves_scroll_space_for_summary_rows(blank_app: GraphPadApp) -> None:
+    table = pd.DataFrame([['first', 1], ['second', 3]])
+    blank_app.sheet.set_table(table)
+
+    scrollregion = tuple(float(value) for value in blank_app.sheet.canvas.cget('scrollregion').split())
+    assert scrollregion[3] == COLUMN_HEADER_HEIGHT + (len(table.index) + 6) * CELL_HEIGHT
+
+
+def test_scatter_preview_does_not_show_normal_table_summaries(blank_app: GraphPadApp) -> None:
+    from src.sheet_view import MAX_PREVIEW_ROWS
+
+    blank_app.sheet.set_table(pd.DataFrame([['first', 1], ['second', 3]]))
+    blank_app.sheet.set_mode('x_and_y')
+
+    assert not any(text in {'Min', 'Mean/Median', 'Max', 'SD', '%CV'} for _x, _y, text in _strip_texts(blank_app))
+    scrollregion = tuple(float(value) for value in blank_app.sheet.canvas.cget('scrollregion').split())
+    assert scrollregion[3] == COLUMN_HEADER_HEIGHT + min(2, MAX_PREVIEW_ROWS) * CELL_HEIGHT
 
 
 def test_the_row_description_is_shown_in_the_index_strip(blank_app: GraphPadApp) -> None:
