@@ -78,6 +78,8 @@ class _AppBase:
     _body_canvas: tk.Canvas
     _body_inner: ttk.Frame
     tabs: ttk.Notebook
+    _main_panes: ttk.Panedwindow
+    _sheet_pane_sized: bool
     _canvas_area: ttk.Frame
     figure: Figure
     canvas: FigureCanvasTkAgg

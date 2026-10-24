@@ -2500,6 +2500,27 @@ def test_graph_never_exceeds_the_canvas(app: GraphPadApp) -> None:
     assert height_in * dpi <= widget.winfo_height() + 1
 
 
+def test_data_preview_can_be_resized_with_the_pane_divider(app: GraphPadApp) -> None:
+    """Dragging the divider changes preview height without removing the graph pane."""
+    _settle(app, 1100, 720)
+    preview_pane = app.sheet.master
+    initial_preview_height = preview_pane.winfo_height()
+    initial_graph_height = app._canvas_area.winfo_height()
+    sash_position = app._main_panes.sashpos(0)
+    assert initial_preview_height == pytest.approx(190, abs=8)
+
+    x = app._main_panes.winfo_width() // 2
+    app._main_panes.event_generate('<ButtonPress-1>', x=x, y=sash_position + 2)
+    app._main_panes.event_generate('<B1-Motion>', x=x, y=sash_position - 48, state=0x100)
+    app._main_panes.event_generate('<ButtonRelease-1>', x=x, y=sash_position - 48)
+    app.root.update()
+
+    assert preview_pane.winfo_height() == pytest.approx(initial_preview_height + 50, abs=8)
+    assert app._canvas_area.winfo_height() == pytest.approx(initial_graph_height - 50, abs=8)
+    assert app._main_panes.sashpos(0) < sash_position
+    assert app._canvas_area.winfo_height() > 0
+
+
 def test_enlarging_the_window_does_not_grow_the_graph(app: GraphPadApp) -> None:
     """Resizing the preview does not change the natural size used to render and export."""
     _settle(app, 1100, 720)

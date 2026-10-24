@@ -68,9 +68,8 @@ MODIFIER_KEYS = frozenset({'ctrl', 'control', 'shift'})
 # A window opened before a file is chosen still needs a dataset, so there is something to
 # draw and the panel can be built and tested without a workbook.
 EMPTY_DATASET = Dataset(samples=())
-# Height reserved for the data preview under the graph. It is fixed rather than a share of
-# the window, so a tall sheet cannot push the graph out of sight, and a short sheet cannot
-# leave a band of empty grid between the two. The grid scrolls inside it.
+# Starting height of the data preview below the graph. The user can drag the divider to
+# change it, and the grid scrolls inside the preview.
 SHEET_PANE_HEIGHT = 190
 
 
@@ -88,10 +87,11 @@ class DataPaneMixin(_AppBase):
         save buttons in the panel, and panning or zooming a graph that is deliberately held
         at one size fights the rule that fixes the size in the first place.
         """
-        body = ttk.Frame(self.root)
-        body.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
-        self._canvas_area = ttk.Frame(body)
-        self._canvas_area.pack(fill=tk.BOTH, expand=True)
+        self._main_panes = ttk.Panedwindow(self.root, orient=tk.VERTICAL)
+        self._main_panes.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
+        self._sheet_pane_sized = False
+        self._canvas_area = ttk.Frame(self._main_panes)
+        self._main_panes.add(self._canvas_area, weight=1)
         self.canvas = FigureCanvasTkAgg(Figure(), master=self._canvas_area)
         natural_width, natural_height = (float(value) for value in self.canvas.figure.get_size_inches())
         self._natural_figure_size = natural_width, natural_height
@@ -99,7 +99,27 @@ class DataPaneMixin(_AppBase):
         # canvas callback registry and takes the connection with it.
         self.canvas.get_tk_widget().place(relx=0.5, rely=0.5, anchor=tk.CENTER)
         self._canvas_area.bind('<Configure>', self._on_canvas_resize)
-        self._build_sheet_pane(body)
+        self._build_sheet_pane(self._main_panes)
+        self._main_panes.bind('<Configure>', self._on_main_panes_resize)
+
+    def _on_main_panes_resize(self, event: tk.Event[tk.Misc]) -> None:
+        """Set the preview's initial height after the pane layout has been calculated.
+
+        Args:
+            event: The resize event for the graph and preview panes.
+
+        """
+        if not self._sheet_pane_sized and event.height > SHEET_PANE_HEIGHT:
+            self._main_panes.after_idle(self._set_initial_sheet_pane_height)
+
+    def _set_initial_sheet_pane_height(self) -> None:
+        """Place the divider so the preview starts at its default height."""
+        if self._sheet_pane_sized:
+            return
+        height = self._main_panes.winfo_height()
+        if height > SHEET_PANE_HEIGHT:
+            self._main_panes.sashpos(0, height - SHEET_PANE_HEIGHT)
+            self._sheet_pane_sized = True
     def _size_to_canvas(self, figure: Figure, width: int, height: int) -> None:
         """Centre the figure and shrink it uniformly only when the canvas is too small.
 
@@ -238,19 +258,15 @@ class DataPaneMixin(_AppBase):
         self.listbox.see(self._row_id(index))
         self._show_selected_color()
         self._show_selected_style()
-    def _build_sheet_pane(self, body: ttk.Frame) -> None:
+    def _build_sheet_pane(self, body: ttk.Panedwindow) -> None:
         """Create the sheet-like preview of the imported data, below the graph.
 
         Args:
-            body: The frame holding the graph and everything under it.
+            body: The pane holding the graph and preview.
 
         """
         box = ttk.Frame(body)
-        box.pack(side=tk.BOTTOM, fill=tk.X)
-        # The block is given a fixed height so a long sheet cannot push the graph out of
-        # the window. The grid scrolls inside it, so the block never changes size.
-        box.pack_propagate(False)
-        box.configure(height=SHEET_PANE_HEIGHT)
+        body.add(box, weight=0)
         ttk.Separator(box, orient=tk.HORIZONTAL).pack(fill=tk.X)
         self.sheet_caption = ttk.Label(
             box,
