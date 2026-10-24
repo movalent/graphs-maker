@@ -222,6 +222,36 @@ def test_preview_names_are_editable_session_only_and_undoable(app: GraphPadApp) 
     assert read_table(INPUT_FILE).equals(original_workbook)
 
 
+def test_editing_blank_group_cell_starts_group_at_clicked_sample(blank_app: GraphPadApp) -> None:
+    table = pd.DataFrame(
+        [
+            ['Group', None, None, None],
+            ['Condition', 'First', 'Second', 'Third'],
+            ['Replicate 1', 1, 2, 3],
+            ['Replicate 2', 2, 3, 4],
+        ]
+    )
+    blank_app.input_path = INPUT_FILE
+    blank_app.sheet.set_table(table)
+    blank_app.sheet.set_assignment({Role.GROUP: (0,), Role.CONDITIONS: (1,)})
+    blank_app.sheet.set_selection((1, 2, 3), None)
+    blank_app.state.set_columns((1, 2, 3))
+
+    for column, group in ((1, 'First group'), (2, 'Second group')):
+        blank_app.sheet._start_edit(0, column)
+        assert blank_app.sheet._active_editor is not None
+        blank_app.sheet._active_editor.delete(0, tk.END)
+        blank_app.sheet._active_editor.insert(0, group)
+        blank_app.sheet._commit_edit()
+
+    samples = blank_app.state.dataset.samples
+    assert [(sample.name, sample.group) for sample in samples] == [
+        ('First', 'First group'),
+        ('Second', 'Second group'),
+        ('Third', 'Second group'),
+    ]
+
+
 def test_the_list_has_a_column_for_each_name(app: GraphPadApp) -> None:
     assert app.listbox.cget('columns') == ('sample', 'group')
     assert app.listbox.heading('sample', 'text') == 'Sample'

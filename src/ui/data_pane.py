@@ -25,7 +25,6 @@ from src.app_state import AppState
 from src.excel_reader import (
     ExcelLayoutError,
     SheetLayout,
-    cell_text,
     detect_layout,
     detect_scatter_layout,
     parse_columns,
@@ -347,7 +346,7 @@ class DataPaneMixin(_AppBase):
             self._apply_column_selection()
 
     def _on_sheet_cell_edited(self, row: int, column: int, text: str) -> None:
-        """Apply a sample or group rename to the in-memory worksheet and graph."""
+        """Apply a sample rename or group assignment to the in-memory worksheet and graph."""
         if self.syncing or self.input_path is None:
             return
         table = self.sheet.table
@@ -358,16 +357,6 @@ class DataPaneMixin(_AppBase):
             (edit_row, edit_column): value for edit_row, edit_column, value in self.state.preview_edits
         }
         edits = dict(previous_edits)
-        group_row = self.sheet.role_row(Role.GROUP)
-        if group_row == row:
-            group_start = column
-            while (
-                group_start > 1
-                and not cell_text(table.iat[row, group_start])
-            ):
-                group_start -= 1
-            column = group_start
-
         edits[(row, column)] = text
         candidate = table.copy(deep=True)
         candidate.iat[row, column] = text
