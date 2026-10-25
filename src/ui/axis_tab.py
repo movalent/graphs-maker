@@ -14,7 +14,7 @@ from __future__ import annotations
 import math
 import tkinter as tk
 from functools import partial
-from tkinter import colorchooser, ttk
+from tkinter import colorchooser, messagebox, ttk
 
 from matplotlib.ticker import AutoLocator
 
@@ -69,6 +69,8 @@ class AxisTabMixin(_AppBase):
         # value, so a field left alone is never read as a request to fix the axis there.
         self.x_max_var.set('' if config.x_max is None else f'{config.x_max:g}')
         self.x_step_var.set('' if config.x_major_step is None else f'{config.x_major_step:g}')
+        self._set_axis_break_fields(config.x_axis_break, self.x_break_low_var, self.x_break_high_var)
+        self._set_axis_break_fields(config.y_axis_break, self.y_break_low_var, self.y_break_high_var)
         self.x_axis_length_var.set(f'{config.x_axis_length_cm:g}')
         self.y_axis_length_var.set(f'{config.y_axis_length_cm:g}')
         # Each axis shows the size it will actually draw with, which is its own where it has
@@ -86,6 +88,11 @@ class AxisTabMixin(_AppBase):
         )
         self.secondary_y_step_var.set(
             shown_number(config.secondary_y_major_step, self._secondary_automatic_step())
+        )
+        self._set_axis_break_fields(
+            config.secondary_y_axis_break,
+            self.secondary_y_break_low_var,
+            self.secondary_y_break_high_var,
         )
         self.secondary_y_label_size_var.set(
             '' if config.secondary_y_label_size is None else str(config.secondary_y_label_size)
@@ -124,6 +131,15 @@ class AxisTabMixin(_AppBase):
             command=self._update_minor_ticks,
         )
         self.minor_ticks_check.pack(anchor=tk.W, pady=(4, 0))
+        ttk.Label(
+            tab,
+            text=(
+                'Optional break: enter finite increasing limits inside the visible range. '
+                'Leave both blank to turn it off. Linear axes only.'
+            ),
+            font=('Segoe UI', 8),
+            wraplength=PANEL_WIDTH - 60,
+        ).pack(anchor=tk.W, pady=(2, 0))
 
         self._build_x_axis(section(tab, 'X axis'))
         self._build_y_axis(section(tab, 'Y axis'))
@@ -180,6 +196,29 @@ class AxisTabMixin(_AppBase):
             ('Y max', self.secondary_y_max_var, (), self._update_secondary_y_range),
             ('Y step', self.secondary_y_step_var, (), self._update_secondary_y_range),
         )
+        self.secondary_y_break_low_var = tk.StringVar()
+        self.secondary_y_break_high_var = tk.StringVar()
+        self.secondary_y_break_low_entry, self.secondary_y_break_high_entry = pair_row(
+            self.secondary_y_frame,
+            (
+                'Break from',
+                self.secondary_y_break_low_var,
+                (),
+                self._update_secondary_y_axis_break,
+            ),
+            (
+                'Break to',
+                self.secondary_y_break_high_var,
+                (),
+                self._update_secondary_y_axis_break,
+            ),
+        )
+        ttk.Label(
+            self.secondary_y_frame,
+            text='Breaks are applied only to linear axes.',
+            font=('Segoe UI', 8),
+            wraplength=PANEL_WIDTH - 60,
+        ).pack(anchor=tk.W, pady=(2, 0))
         self.secondary_y_label_size_var = tk.StringVar()
         number_row(
             self.secondary_y_frame,
@@ -364,6 +403,13 @@ class AxisTabMixin(_AppBase):
             ('X max', self.x_max_var, (), self._update_x_axis),
             ('X step', self.x_step_var, (), self._update_x_axis),
         )
+        self.x_break_low_var = tk.StringVar()
+        self.x_break_high_var = tk.StringVar()
+        self.x_break_low_entry, self.x_break_high_entry = pair_row(
+            box,
+            ('Break from', self.x_break_low_var, (), self._update_x_axis_break),
+            ('Break to', self.x_break_high_var, (), self._update_x_axis_break),
+        )
 
         # The font type is shared and sits above the two blocks, so this one carries only
         # the size, which is set per axis because the two sets of labels are not the same
@@ -420,6 +466,13 @@ class AxisTabMixin(_AppBase):
             ('Y max', self.y_max_var, (), self._update_axis),
             ('Y step', self.y_step_var, (), self._update_axis),
         )
+        self.y_break_low_var = tk.StringVar()
+        self.y_break_high_var = tk.StringVar()
+        self.y_break_low_entry, self.y_break_high_entry = pair_row(
+            box,
+            ('Break from', self.y_break_low_var, (), self._update_y_axis_break),
+            ('Break to', self.y_break_high_var, (), self._update_y_axis_break),
+        )
 
         # The value axis title size is the size of the axis name, which is a different piece
         # of text from the tick labels, so it keeps a field of its own.
@@ -460,6 +513,65 @@ class AxisTabMixin(_AppBase):
             return
         self.state.config.minor_ticks = bool(self.minor_ticks_var.get())
         self.redraw()
+
+    @staticmethod
+    def _set_axis_break_fields(
+        interval: tuple[float, float] | None,
+        low_var: tk.StringVar,
+        high_var: tk.StringVar,
+    ) -> None:
+        """Show the interval in its fields, or leave both blank when it is disabled."""
+        low_var.set('' if interval is None else f'{interval[0]:g}')
+        high_var.set('' if interval is None else f'{interval[1]:g}')
+
+    def _update_axis_break(
+        self,
+        low_var: tk.StringVar,
+        high_var: tk.StringVar,
+        config_name: str,
+    ) -> None:
+        """Apply a finite increasing break interval, or clear it when both fields are blank."""
+        if self.syncing:
+            return
+        low_text, high_text = low_var.get().strip(), high_var.get().strip()
+        if bool(low_text) != bool(high_text):
+            return
+        interval: tuple[float, float] | None = None
+        if low_text or high_text:
+            low, high = optional_number(low_text), optional_number(high_text)
+            if (
+                low is None
+                or high is None
+                or not math.isfinite(low)
+                or not math.isfinite(high)
+                or low >= high
+            ):
+                messagebox.showerror(
+                    'Invalid axis break',
+                    'Enter finite increasing break limits, or leave both fields blank.',
+                    parent=self.root,
+                )
+                self._sync_axis()
+                return
+            interval = (low, high)
+        setattr(self.state.config, config_name, interval)
+        self.redraw()
+
+    def _update_x_axis_break(self, _event: object = None) -> None:
+        """Apply or clear the scatter x-axis break."""
+        self._update_axis_break(self.x_break_low_var, self.x_break_high_var, 'x_axis_break')
+
+    def _update_y_axis_break(self, _event: object = None) -> None:
+        """Apply or clear the primary quantitative-axis break."""
+        self._update_axis_break(self.y_break_low_var, self.y_break_high_var, 'y_axis_break')
+
+    def _update_secondary_y_axis_break(self, _event: object = None) -> None:
+        """Apply or clear the secondary value-axis break."""
+        self._update_axis_break(
+            self.secondary_y_break_low_var,
+            self.secondary_y_break_high_var,
+            'secondary_y_axis_break',
+        )
 
     def _update_axis(self, _event: object = None) -> None:
         """Apply the value axis range and tick spacing.

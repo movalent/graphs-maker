@@ -12,6 +12,7 @@ from src.graphpad_style import DEFAULT_LINE_WIDTH, DEFAULT_PALETTE, FALLBACK_FON
 
 ErrorKind = Literal['sd', 'sem', 'none']
 ErrorBarDirection = Literal['top', 'bottom', 'both']
+AxisBreak = tuple[float, float]
 ColorBy = Literal['sample', 'group']
 # Which way round the graph is drawn. ``vertical`` is the Prism default, where the
 # measurements run up the value axis and the sample names run along the bottom. The other two
@@ -398,6 +399,8 @@ class PlotConfig:
         y_max: Upper limit of the value axis, or ``None`` to choose it from the data.
         y_min: Lower limit of the value axis, or ``None`` for the usual zero baseline.
         y_major_step: Spacing of the value axis major ticks, or ``None`` for automatic.
+        y_axis_break: Omitted interval on the quantitative value axis, or ``None``.
+        x_axis_break: Omitted interval on the scatter x axis, or ``None``.
         secondary_y_axis_enabled: Whether to show a right-side value axis.
         secondary_y_axis_samples: Bar samples assigned to the right-side axis.
         secondary_y_axis_series: Scatter series assigned to the right-side axis.
@@ -405,6 +408,7 @@ class PlotConfig:
         secondary_y_max: Upper limit of the secondary value axis, or ``None`` for automatic.
         secondary_y_min: Lower limit of the secondary value axis, or ``None`` for automatic.
         secondary_y_major_step: Spacing of the secondary value axis major ticks.
+        secondary_y_axis_break: Omitted interval on the secondary value axis, or ``None``.
         secondary_log_axis: Whether the secondary value axis uses a logarithmic scale.
         secondary_y_label_size: Size of the secondary value axis title.
         secondary_y_font_size: Size of the secondary value axis tick labels.
@@ -492,6 +496,7 @@ class PlotConfig:
     secondary_y_max: float | None = None
     secondary_y_min: float | None = None
     secondary_y_major_step: float | None = None
+    secondary_y_axis_break: AxisBreak | None = None
     secondary_log_axis: bool = False
     secondary_y_label_size: int | None = None
     secondary_y_font_size: int | None = None
@@ -512,6 +517,8 @@ class PlotConfig:
     y_max: float | None = None
     y_min: float | None = None
     y_major_step: float | None = None
+    y_axis_break: AxisBreak | None = None
+    x_axis_break: AxisBreak | None = None
     font_size: int | None = None
     x_font_size: int | None = None
     y_font_size: int | None = None

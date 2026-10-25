@@ -8,6 +8,7 @@ from dataclasses import dataclass, replace
 from statistics import fmean, stdev
 from typing import Literal, cast
 
+import numpy as np
 from matplotlib import font_manager, rcParams
 from matplotlib.artist import Artist
 from matplotlib.axes import Axes
@@ -15,8 +16,9 @@ from matplotlib.axes._secondary_axes import SecondaryAxis
 from matplotlib.collections import PolyCollection
 from matplotlib.container import BarContainer
 from matplotlib.figure import Figure
-from matplotlib.patches import Patch
-from matplotlib.ticker import AutoMinorLocator, LogLocator, MultipleLocator
+from matplotlib.patches import Patch, Rectangle
+from matplotlib.patheffects import withStroke
+from matplotlib.ticker import AutoMinorLocator, FixedLocator, LogLocator, MultipleLocator
 from matplotlib.transforms import blended_transform_factory
 
 from src.curve_fitting import CurveFit, fit_polynomial
@@ -33,6 +35,7 @@ from src.models import (
     POINT_MARKERS,
     SOLID_POINTS,
     Y_MAX_HEADROOM,
+    AxisBreak,
     Dataset,
     ErrorBarDirection,
     LegendPosition,
@@ -406,6 +409,165 @@ def _apply_minor_ticks(ax: Axes, config: PlotConfig, *, x_axis: bool = True, y_a
         ax.tick_params(axis=name, which='minor', length=2.0)
 
 
+def _apply_axis_break(ax: Axes, interval: AxisBreak | None, axis_name: Literal['x', 'y']) -> None:
+    """Omit one visible linear-axis interval and mark the break on its spines."""
+    if interval is None:
+        return
+    axis = ax.xaxis if axis_name == 'x' else ax.yaxis
+    if axis.get_scale() != 'linear':
+        return
+    lower_break, upper_break = interval
+    view = axis.get_view_interval()
+    view_low, view_high = min(view), max(view)
+    if not view_low < lower_break < upper_break < view_high:
+        return
+
+    width = upper_break - lower_break
+    compressed_width = width * 1e-6
+    major_ticks = axis.get_majorticklocs()
+    minor_ticks = axis.get_minorticklocs()
+    major_formatter = axis.get_major_formatter()
+    minor_formatter = axis.get_minor_formatter()
+
+    def forward(values: np.ndarray) -> np.ndarray:
+        values = np.asarray(values, dtype=float)
+        return np.asarray(
+            np.where(
+                values <= lower_break,
+                values,
+                np.where(
+                    values >= upper_break,
+                    values - width + compressed_width,
+                    lower_break + (values - lower_break) * compressed_width / width,
+                ),
+            )
+        )
+
+    def inverse(values: np.ndarray) -> np.ndarray:
+        values = np.asarray(values, dtype=float)
+        return np.asarray(
+            np.where(
+                values <= lower_break,
+                values,
+                np.where(
+                    values >= lower_break + compressed_width,
+                    values + width - compressed_width,
+                    lower_break + (values - lower_break) * width / compressed_width,
+                ),
+            )
+        )
+
+    if axis_name == 'x':
+        ax.set_xscale('function', functions=(forward, inverse))
+    else:
+        ax.set_yscale('function', functions=(forward, inverse))
+
+    axis = ax.xaxis if axis_name == 'x' else ax.yaxis
+    axis.set_major_formatter(major_formatter)
+    axis.set_minor_formatter(minor_formatter)
+    axis.set_major_locator(FixedLocator([tick for tick in major_ticks if not lower_break < tick < upper_break]))
+    axis.set_minor_locator(FixedLocator([tick for tick in minor_ticks if not lower_break < tick < upper_break]))
+
+    transformed_view = forward(np.asarray((view[0], view[1]), dtype=float))
+    transformed_break = forward(np.asarray((lower_break, upper_break), dtype=float))
+    location = (float(np.mean(transformed_break)) - transformed_view[0]) / (
+        transformed_view[1] - transformed_view[0]
+    )
+    marker_half_width = 0.006
+    marker_gap = 0.012
+    if axis_name == 'x':
+        edges = (-0.006, 0.0), (1.0, 1.006)
+        marks = [
+            ((location + offset - marker_half_width, edge[0]), (location + offset + marker_half_width, edge[1]))
+            for edge in edges
+            for offset in (-marker_gap / 2, marker_gap / 2)
+        ]
+    else:
+        edges = (-0.006, 0.0), (1.0, 1.006)
+        marks = [
+            ((edge[0], location + offset - marker_half_width), (edge[1], location + offset + marker_half_width))
+            for edge in edges
+            for offset in (-marker_gap / 2, marker_gap / 2)
+        ]
+    for start, end in marks:
+        (mark,) = ax.plot(
+            (start[0], end[0]),
+            (start[1], end[1]),
+            transform=ax.transAxes,
+            color='#000000',
+            linewidth=1.2,
+            clip_on=False,
+            zorder=10,
+        )
+        mark.set_gid('axis-break-mark')
+
+
+def _add_bar_break_marks(
+    ax: Axes,
+    bars: Iterable[Rectangle],
+    interval: AxisBreak | None,
+    horizontal: bool,
+) -> None:
+    """Draw a high-contrast pair of diagonal break cuts on bars crossing the interval."""
+    if interval is None:
+        return
+    lower_break, upper_break = interval
+    axis = ax.xaxis if horizontal else ax.yaxis
+    if axis.get_scale() != 'function':
+        return
+    marker_value = (lower_break + upper_break) / 2
+    marks: list[tuple[tuple[float, float], tuple[float, float]]] = []
+    axes_transform = ax.transAxes.inverted()
+    for bar in bars:
+        bounds = bar.get_bbox()
+        value_low, value_high = (bounds.x0, bounds.x1) if horizontal else (bounds.y0, bounds.y1)
+        if max(value_low, value_high) <= lower_break or min(value_low, value_high) >= upper_break:
+            continue
+        if horizontal:
+            category_edges = (
+                (marker_value, bounds.y0),
+                (marker_value, bounds.y1),
+            )
+        else:
+            category_edges = (
+                (bounds.x0, marker_value),
+                (bounds.x1, marker_value),
+            )
+        display_edges = ax.transData.transform(category_edges)
+        axes_edges = axes_transform.transform(display_edges)
+        span = float(axes_edges[1, 1] - axes_edges[0, 1]) if horizontal else float(
+            axes_edges[1, 0] - axes_edges[0, 0]
+        )
+        half_span = min(max(abs(span) * 0.13, 0.004), 0.012)
+        if horizontal:
+            cross_position = float(np.mean(axes_edges[:, 0]))
+            centers = (float(axes_edges[0, 1]) + span * 0.32, float(axes_edges[0, 1]) + span * 0.68)
+            marks.extend(
+                ((cross_position - half_span, center - 0.008), (cross_position + half_span, center + 0.008))
+                for center in centers
+            )
+        else:
+            cross_position = float(np.mean(axes_edges[:, 1]))
+            centers = (float(axes_edges[0, 0]) + span * 0.32, float(axes_edges[0, 0]) + span * 0.68)
+            marks.extend(
+                ((center - 0.008, cross_position - half_span), (center + 0.008, cross_position + half_span))
+                for center in centers
+            )
+
+    for start, end in marks:
+        (mark,) = ax.plot(
+            (start[0], end[0]),
+            (start[1], end[1]),
+            transform=ax.transAxes,
+            color='#000000',
+            linewidth=1.2,
+            clip_on=False,
+            zorder=8,
+            path_effects=[withStroke(linewidth=3.2, foreground='white')],
+        )
+        mark.set_gid('axis-break-bar-mark')
+
+
 def _directional_errors(
     errors: Sequence[float],
     direction: ErrorBarDirection,
@@ -427,6 +589,7 @@ def _secondary_axis_config(config: PlotConfig) -> PlotConfig:
         y_max=config.secondary_y_max,
         y_min=config.secondary_y_min,
         y_major_step=config.secondary_y_major_step,
+        y_axis_break=config.secondary_y_axis_break,
         y_label_size=config.secondary_y_label_size,
         y_font_size=config.secondary_y_font_size,
     )
@@ -1268,6 +1431,7 @@ def plot_bars(dataset: Dataset, config: PlotConfig | None = None) -> Figure:
     alphas = [settings.alphas.get(sample.name, 1.0) for sample in samples]
     hatches = [settings.hatches.get(sample.name, '') for sample in samples]
     errors = [sample.error(settings.error_kind) for sample in samples]
+    axis_broken_bars: dict[Axes, list[Rectangle]] = {}
     primary_samples = tuple(samples[index] for index in primary_indices)
     secondary_samples = tuple(samples[index] for index in secondary_indices)
     for target_ax, indices in ((ax, primary_indices), (secondary_ax, secondary_indices)):
@@ -1308,6 +1472,7 @@ def plot_bars(dataset: Dataset, config: PlotConfig | None = None) -> Figure:
         for patch, alpha in zip(bars.patches, target_alphas, strict=True):
             patch.set_alpha(alpha)
         tag_bars(fig, bars, [sample.name for sample in target_samples])
+        axis_broken_bars[target_ax] = list(bars.patches)
 
         # Error bars follow each subset onto the axis its values are measured against.
         directional_errors = _directional_errors(target_errors, settings.error_bar_direction)
@@ -1423,6 +1588,16 @@ def plot_bars(dataset: Dataset, config: PlotConfig | None = None) -> Figure:
     # The title is written last, because it is placed from the margins just set rather than
     # from the axes, and those are only final here.
     _fix_axes_dimensions(fig, ax, settings)
+    _apply_axis_break(ax, settings.y_axis_break, 'x' if horizontal else 'y')
+    _add_bar_break_marks(ax, axis_broken_bars.get(ax, ()), settings.y_axis_break, horizontal)
+    if secondary_ax is not None:
+        _apply_axis_break(secondary_ax, settings.secondary_y_axis_break, 'y')
+        _add_bar_break_marks(
+            secondary_ax,
+            axis_broken_bars.get(secondary_ax, ()),
+            settings.secondary_y_axis_break,
+            False,
+        )
     _apply_title(fig, ax, settings)
     return fig
 
@@ -1602,6 +1777,7 @@ def plot_distributions(dataset: Dataset, config: PlotConfig | None = None) -> Fi
             top=_top_margin(settings, rows),
         )
     _fix_axes_dimensions(fig, ax, settings)
+    _apply_axis_break(ax, settings.y_axis_break, 'x' if horizontal else 'y')
     _apply_title(fig, ax, settings)
     return fig
 
@@ -1853,6 +2029,10 @@ def plot_scatter(dataset: Dataset, config: PlotConfig | None = None) -> Figure:
             margins.pop('right', None)
         fig.subplots_adjust(**margins)
     _fix_axes_dimensions(fig, ax, settings)
+    _apply_axis_break(ax, settings.x_axis_break, 'x')
+    _apply_axis_break(ax, settings.y_axis_break, 'y')
+    if secondary_ax is not None:
+        _apply_axis_break(secondary_ax, settings.secondary_y_axis_break, 'y')
     # The title is written last, because it is placed from the margins just set rather than
     # from the axes, and those are only final here.
     _apply_title(fig, ax, settings)

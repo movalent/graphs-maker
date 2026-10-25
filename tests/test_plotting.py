@@ -1560,6 +1560,130 @@ def test_minor_ticks_are_shown_on_enabled_secondary_y_axis(simple_dataset: Datas
     assert secondary.yaxis.get_minorticklocs().size > 0
 
 
+def test_value_axis_break_omits_interval_and_draws_marks(simple_dataset: Dataset) -> None:
+    figure = plot_dataset(simple_dataset, PlotConfig(y_axis_break=(15.0, 25.0), minor_ticks=True))
+    figure.canvas.draw()
+    axes = axes_of(figure)
+    transformed = axes.yaxis.get_transform().transform((15.0, 25.0, 30.0))
+    marks = [line for line in axes.lines if line.get_gid() == 'axis-break-mark']
+
+    assert axes.get_yscale() == 'function'
+    assert transformed[1] - transformed[0] == pytest.approx(1e-5)
+    assert transformed[2] == pytest.approx(20.00001)
+    assert all(not 15.0 < tick < 25.0 for tick in axes.get_yticks())
+    assert all(not 15.0 < tick < 25.0 for tick in axes.get_yticks(minor=True))
+    assert len(marks) == 4
+    assert all(
+        line.get_xdata()[1] > line.get_xdata()[0] and line.get_ydata()[1] > line.get_ydata()[0]
+        for line in marks
+    )
+
+
+def test_bar_series_show_break_cuts_when_crossing_the_omitted_range(simple_dataset: Dataset) -> None:
+    axes = axes_of(plot_dataset(simple_dataset, PlotConfig(y_axis_break=(15.0, 25.0))))
+    marks = [line for line in axes.lines if line.get_gid() == 'axis-break-bar-mark']
+
+    assert len(marks) == 4
+    assert all(
+        line.get_xdata()[1] > line.get_xdata()[0] and line.get_ydata()[1] > line.get_ydata()[0]
+        for line in marks
+    )
+
+
+def test_axis_break_is_inactive_for_log_axes(simple_dataset: Dataset) -> None:
+    axes = axes_of(plot_dataset(simple_dataset, PlotConfig(log_axis=True, y_axis_break=(15.0, 25.0))))
+
+    assert axes.get_yscale() == 'log'
+    assert not any(line.get_gid() == 'axis-break-mark' for line in axes.lines)
+
+
+def test_axis_break_is_off_by_default(simple_dataset: Dataset) -> None:
+    axes = axes_of(plot_dataset(simple_dataset))
+
+    assert axes.get_yscale() == 'linear'
+    assert not any(line.get_gid() == 'axis-break-mark' for line in axes.lines)
+
+
+def test_axis_break_is_inactive_outside_visible_range(simple_dataset: Dataset) -> None:
+    axes = axes_of(plot_dataset(simple_dataset, PlotConfig(y_axis_break=(40.0, 50.0))))
+
+    assert axes.get_yscale() == 'linear'
+    assert not any(line.get_gid() == 'axis-break-mark' for line in axes.lines)
+
+
+def test_horizontal_bar_break_uses_quantitative_x_axis(simple_dataset: Dataset) -> None:
+    figure = plot_dataset(
+        simple_dataset,
+        PlotConfig(orientation='horizontal', y_axis_break=(15.0, 25.0)),
+    )
+    figure.canvas.draw()
+    axes = axes_of(figure)
+
+    assert axes.get_xscale() == 'function'
+    assert axes.get_yscale() == 'linear'
+    assert len([line for line in axes.lines if line.get_gid() == 'axis-break-mark']) == 4
+
+
+@pytest.mark.parametrize('chart', ('box', 'violin', 'box_violin'))
+def test_distribution_value_axes_support_breaks(simple_dataset: Dataset, chart: ChartKind) -> None:
+    figure = plot_dataset(simple_dataset, PlotConfig(chart=chart, y_axis_break=(15.0, 25.0)))
+    figure.canvas.draw()
+    axes = axes_of(figure)
+
+    assert axes.get_yscale() == 'function'
+    assert len([line for line in axes.lines if line.get_gid() == 'axis-break-mark']) == 4
+
+
+def test_scatter_x_and_y_axes_support_breaks(scatter_dataset: Dataset) -> None:
+    figure = plot_dataset(
+        scatter_dataset,
+        PlotConfig(chart='scatter', x_axis_break=(1.5, 3.0), y_axis_break=(8.0, 12.0)),
+    )
+    figure.canvas.draw()
+    axes = axes_of(figure)
+
+    assert axes.get_xscale() == 'function'
+    assert axes.get_yscale() == 'function'
+    assert len([line for line in axes.lines if line.get_gid() == 'axis-break-mark']) == 8
+
+
+def test_secondary_y_axis_supports_independent_break(simple_dataset: Dataset) -> None:
+    figure = plot_dataset(
+        simple_dataset,
+        PlotConfig(
+            y_axis_break=(15.0, 25.0),
+            secondary_y_axis_enabled=True,
+            secondary_y_axis_samples=('Other',),
+            secondary_y_axis_break=(15.0, 25.0),
+        ),
+    )
+    figure.canvas.draw()
+    primary, secondary = figure.axes
+
+    assert primary.get_yscale() == 'function'
+    assert secondary.get_yscale() == 'function'
+    assert len([line for line in secondary.lines if line.get_gid() == 'axis-break-mark']) == 4
+    assert len([line for line in secondary.lines if line.get_gid() == 'axis-break-bar-mark']) == 2
+
+
+def test_scatter_secondary_y_axis_supports_independent_break(scatter_dataset: Dataset) -> None:
+    figure = plot_dataset(
+        scatter_dataset,
+        PlotConfig(
+            chart='scatter',
+            secondary_y_axis_enabled=True,
+            secondary_y_axis_series=('S2',),
+            secondary_y_axis_break=(5.2, 6.0),
+        ),
+    )
+    figure.canvas.draw()
+    primary, secondary = figure.axes
+
+    assert primary.get_yscale() == 'linear'
+    assert secondary.get_yscale() == 'function'
+    assert len([line for line in secondary.lines if line.get_gid() == 'axis-break-mark']) == 4
+
+
 def test_secondary_y_axis_is_off_by_default(simple_dataset: Dataset) -> None:
     assert len(plot_dataset(simple_dataset).axes) == 1
 

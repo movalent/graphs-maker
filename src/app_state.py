@@ -964,6 +964,7 @@ class AppState:
         self.config.secondary_y_max = None
         self.config.secondary_y_min = None
         self.config.secondary_y_major_step = None
+        self.config.secondary_y_axis_break = None
         self.config.secondary_log_axis = False
         self.config.secondary_y_label_size = None
         self.config.secondary_y_font_size = None
@@ -985,6 +986,8 @@ class AppState:
         self.config.y_max = None
         self.config.y_min = None
         self.config.y_major_step = None
+        self.config.y_axis_break = None
+        self.config.x_axis_break = None
         self.config.font_size = None
         self.config.y_label_size = None
         self.config.title_size = None

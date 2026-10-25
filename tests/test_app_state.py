@@ -534,6 +534,8 @@ def test_reset_clears_every_new_setting(state: AppState) -> None:
     state.config.y_max = 500.0
     state.config.y_min = 10.0
     state.config.y_major_step = 25.0
+    state.config.y_axis_break = (10.0, 20.0)
+    state.config.x_axis_break = (1.0, 2.0)
     state.config.font_size = 14
     state.config.y_label_size = 16
     state.config.title_size = 18
@@ -550,6 +552,7 @@ def test_reset_clears_every_new_setting(state: AppState) -> None:
     state.config.secondary_y_max = 50.0
     state.config.secondary_y_min = 1.0
     state.config.secondary_y_major_step = 5.0
+    state.config.secondary_y_axis_break = (10.0, 20.0)
     state.config.secondary_log_axis = True
     state.config.secondary_y_label_size = 13
     state.config.secondary_y_font_size = 11
@@ -563,6 +566,8 @@ def test_reset_clears_every_new_setting(state: AppState) -> None:
     assert state.config.y_max is None
     assert state.config.y_min is None
     assert state.config.y_major_step is None
+    assert state.config.y_axis_break is None
+    assert state.config.x_axis_break is None
     assert state.config.font_size is None
     assert state.config.y_label_size is None
     assert state.config.title_size is None
@@ -576,6 +581,7 @@ def test_reset_clears_every_new_setting(state: AppState) -> None:
     assert state.config.secondary_y_max is None
     assert state.config.secondary_y_min is None
     assert state.config.secondary_y_major_step is None
+    assert state.config.secondary_y_axis_break is None
     assert state.config.secondary_log_axis is False
     assert state.config.secondary_y_label_size is None
     assert state.config.secondary_y_font_size is None

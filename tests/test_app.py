@@ -2316,6 +2316,7 @@ def test_the_axis_fields_are_on_the_axis_tab(app: GraphPadApp) -> None:
     assert app.tabs.index('current') == 0
     assert app.y_max_var.get() != ''
     assert 'Show minor ticks' in _captions_in(_tab_frame(app, 1))
+    assert {'Break from', 'Break to'} <= _captions_in(_tab_frame(app, 1))
 
 
 def test_minor_ticks_can_be_toggled_from_the_axis_tab(app: GraphPadApp) -> None:
@@ -2326,6 +2327,39 @@ def test_minor_ticks_can_be_toggled_from_the_axis_tab(app: GraphPadApp) -> None:
     assert app.state.config.minor_ticks
     assert app.minor_ticks_var.get()
     assert app.canvas.figure.axes[0].yaxis.get_minorticklocs().size > 0
+
+
+def test_axis_break_fields_apply_and_clear_primary_interval(app: GraphPadApp) -> None:
+    app.y_break_low_var.set('15')
+    app._update_y_axis_break()
+
+    assert app.state.config.y_axis_break is None
+    assert app.y_break_low_var.get() == '15'
+    assert app.y_break_high_var.get() == ''
+
+    app.y_break_high_var.set('25')
+    app._update_y_axis_break()
+
+    assert app.state.config.y_axis_break == (15.0, 25.0)
+    assert app.canvas.figure.axes[0].get_yscale() == 'function'
+
+    app.y_break_low_var.set('')
+    app.y_break_high_var.set('')
+    app._update_y_axis_break()
+
+    assert app.state.config.y_axis_break is None
+    assert app.canvas.figure.axes[0].get_yscale() == 'linear'
+
+
+def test_axis_break_fields_reject_invalid_intervals(app: GraphPadApp) -> None:
+    app.y_break_low_var.set('25')
+    app.y_break_high_var.set('15')
+
+    app._update_y_axis_break()
+
+    assert app.state.config.y_axis_break is None
+    assert app.y_break_low_var.get() == ''
+    assert app.y_break_high_var.get() == ''
 
 
 def test_the_sample_list_does_not_cover_the_controls_below(app: GraphPadApp) -> None:
@@ -3732,6 +3766,8 @@ def test_secondary_y_axis_controls_start_collapsed_and_off(app: GraphPadApp) -> 
         'Y title text size',
         'Y tick text size',
         'Y axis type',
+        'Break from',
+        'Break to',
         'Assign to secondary axis',
     } <= _captions_in(app.secondary_y_frame)
 
@@ -3788,10 +3824,26 @@ def test_the_x_range_is_greyed_out_for_a_bar_graph(blank_app: GraphPadApp) -> No
     _scatter(blank_app)
     assert str(blank_app.x_max_entry.cget('state')) == 'normal'
     assert str(blank_app.x_step_entry.cget('state')) == 'normal'
+    assert str(blank_app.x_break_low_entry.cget('state')) == 'normal'
+    assert str(blank_app.x_break_high_entry.cget('state')) == 'normal'
     assert blank_app.load_file(INPUT_FILE)
     blank_app.root.update()
     assert str(blank_app.x_max_entry.cget('state')) == 'disabled'
     assert str(blank_app.x_step_entry.cget('state')) == 'disabled'
+    assert str(blank_app.x_break_low_entry.cget('state')) == 'disabled'
+    assert str(blank_app.x_break_high_entry.cget('state')) == 'disabled'
+
+
+def test_scatter_x_break_fields_apply_to_the_numeric_axis(blank_app: GraphPadApp) -> None:
+    _scatter(blank_app)
+    low, high = blank_app.canvas.figure.axes[0].get_xlim()
+    blank_app.x_break_low_var.set(f'{low + (high - low) / 3:g}')
+    blank_app.x_break_high_var.set(f'{low + 2 * (high - low) / 3:g}')
+
+    blank_app._update_x_axis_break()
+
+    assert blank_app.state.config.x_axis_break is not None
+    assert blank_app.canvas.figure.axes[0].get_xscale() == 'function'
 
 
 def test_the_label_rotation_belongs_to_the_x_axis(app: GraphPadApp) -> None:

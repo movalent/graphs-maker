@@ -190,7 +190,14 @@ class GraphPadApp(ShellMixin, SampleListMixin, DataPaneMixin, GeneralTabMixin, A
         # along that axis instead of labelling it. The fields keep whatever was typed into
         # them and are simply not editable, so a switch back to a scatter plot does not
         # silently lose a title that was already worked out.
-        for field in (self.x_max_entry, self.x_step_entry, self.x_axis_type_combo, self.x_title_entry):
+        for field in (
+            self.x_max_entry,
+            self.x_step_entry,
+            self.x_axis_type_combo,
+            self.x_title_entry,
+            self.x_break_low_entry,
+            self.x_break_high_entry,
+        ):
             field.configure(state='normal' if scatter else 'disabled')
 
 
