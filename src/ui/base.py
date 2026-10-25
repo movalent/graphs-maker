@@ -29,7 +29,7 @@ if TYPE_CHECKING:
 
     from src.app_state import AppState
     from src.excel_reader import SheetLayout
-    from src.models import ChartKind, ReferenceLine, ReferenceLineOrientation
+    from src.models import ChartKind, ReferenceLine, ReferenceLineOrientation, TextAnnotation
     from src.preferences import Preferences
     from src.sheet_view import SheetView
 
@@ -127,6 +127,11 @@ class _AppBase:
     legend_font_var: tk.StringVar
     legend_font_type_var: tk.StringVar
     legend_position_var: tk.StringVar
+    add_annotation_button: ttk.Button
+    _annotation_placing: bool
+    _selected_annotation_index: int | None
+    _annotation_drag_index: int | None
+    _annotation_clipboard: TextAnnotation | None
     # The kind of graph, and the block of fields that only a scatter plot needs.
     chart_var: tk.StringVar
     chart_combo: ttk.Combobox
@@ -373,6 +378,15 @@ class _AppBase:
             tab: The General tab frame.
 
         """
+
+    def _build_annotation_controls(self, panel: tk.Widget) -> None:
+        """Add the control that starts placing a text annotation."""
+
+    def _connect_annotation_events(self) -> None:
+        """Connect annotation interactions to the current graph canvas."""
+
+    def _sync_annotation_selection(self) -> None:
+        """Show or clear the selection outline for the current annotation."""
 
     def _build_axis_tab(self, tab: ttk.Frame) -> None:
         """Create the tab holding the name, scale, range and fonts of each axis.

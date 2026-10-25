@@ -35,6 +35,7 @@ from src.models import (
     ReferenceLine,
     ReferenceLineOrientation,
     Sample,
+    TextAnnotation,
 )
 from src.preferences import Preferences
 
@@ -47,6 +48,8 @@ HEX_PATTERN = re.compile(r'^#(?:[0-9a-f]{3}|[0-9a-f]{6})$', re.IGNORECASE)
 # thick line hides the mark it is meant to be drawing around.
 MIN_LINE_WIDTH = 0.1
 MAX_LINE_WIDTH = 10.0
+MIN_ANNOTATION_FONT_SIZE = 4
+MAX_ANNOTATION_FONT_SIZE = 60
 # Which of the two sets of lines a thickness applies to: the frame of the graph, or the bars.
 LineTarget = Literal['axis', 'bar']
 HISTORY_LIMIT = Preferences().undo_history_limit
@@ -941,6 +944,82 @@ class AppState:
         self.config.reference_lines = self.config.reference_lines[:index] + self.config.reference_lines[index + 1 :]
         return True
 
+    @staticmethod
+    def _validated_text_annotation(annotation: TextAnnotation) -> TextAnnotation | None:
+        """Return a normalized annotation, or ``None`` when one of its values is unusable."""
+        color = normalize_hex(annotation.color)
+        if (
+            not annotation.text.strip()
+            or not annotation.font.strip()
+            or not math.isfinite(annotation.x)
+            or not math.isfinite(annotation.y)
+            or not 0.0 <= annotation.x <= 1.0
+            or not 0.0 <= annotation.y <= 1.0
+            or not MIN_ANNOTATION_FONT_SIZE <= annotation.size <= MAX_ANNOTATION_FONT_SIZE
+            or color is None
+        ):
+            return None
+        return TextAnnotation(
+            text=annotation.text.strip(),
+            x=annotation.x,
+            y=annotation.y,
+            font=annotation.font.strip(),
+            size=annotation.size,
+            color=color,
+        )
+
+    def add_text_annotation(self, annotation: TextAnnotation) -> bool:
+        """Append a validated graph text annotation.
+
+        Args:
+            annotation: Text and style to add, with normalized plot-relative coordinates.
+
+        Returns:
+            ``True`` when the annotation was accepted.
+
+        """
+        normalized = self._validated_text_annotation(annotation)
+        if normalized is None:
+            return False
+        self.config.annotations += (normalized,)
+        return True
+
+    def update_text_annotation(self, index: int, annotation: TextAnnotation) -> bool:
+        """Replace one annotation after validating its text, position and style.
+
+        Args:
+            index: Position of the annotation in the current collection.
+            annotation: Replacement annotation.
+
+        Returns:
+            ``True`` when the replacement is valid and was applied.
+
+        """
+        if not 0 <= index < len(self.config.annotations):
+            return False
+        normalized = self._validated_text_annotation(annotation)
+        if normalized is None:
+            return False
+        annotations = list(self.config.annotations)
+        annotations[index] = normalized
+        self.config.annotations = tuple(annotations)
+        return True
+
+    def remove_text_annotation(self, index: int) -> bool:
+        """Remove an annotation by its current position in the collection.
+
+        Args:
+            index: Position of the annotation in the current collection.
+
+        Returns:
+            ``True`` when an annotation existed at that position.
+
+        """
+        if not 0 <= index < len(self.config.annotations):
+            return False
+        self.config.annotations = self.config.annotations[:index] + self.config.annotations[index + 1 :]
+        return True
+
     def reset(self) -> None:
         """Discard every adjustment, including both entry orders, and restore the defaults.
 
@@ -971,6 +1050,7 @@ class AppState:
         self.config.title = None
         self.config.title_position = DEFAULT_TITLE_POSITION
         self.config.title_font = None
+        self.config.annotations = ()
         self.config.error_kind = settings.default_error_kind
         self.config.error_bar_direction = settings.default_error_bar_direction
         self.config.grouped_layout = False

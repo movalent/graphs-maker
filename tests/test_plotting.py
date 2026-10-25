@@ -46,6 +46,7 @@ from src.models import (
     PointType,
     ReferenceLine,
     Sample,
+    TextAnnotation,
     XYPoint,
     XYSeries,
 )
@@ -110,6 +111,36 @@ def test_the_figure_has_a_border_around_its_outer_boundary(simple_dataset: Datas
 
     assert colors.to_hex(figure.patch.get_edgecolor()) == '#000000'
     assert figure.patch.get_linewidth() == pytest.approx(DEFAULT_LINE_WIDTH)
+
+
+@pytest.mark.parametrize('chart', ('bar', 'box', 'violin', 'box_violin'))
+def test_text_annotations_are_drawn_in_plot_relative_coordinates(
+    simple_dataset: Dataset,
+    chart: ChartKind,
+) -> None:
+    annotation = TextAnnotation('Dose response', 0.3, 0.7, 'DejaVu Sans', 15, '#336699')
+    figure = plot_dataset(simple_dataset, PlotConfig(chart=chart, annotations=(annotation,)))
+
+    artist = next(text for text in axes_of(figure).texts if text.get_gid() == 'graph-annotation-0')
+    assert artist.get_text() == 'Dose response'
+    assert artist.get_position() == (0.3, 0.7)
+    assert artist.get_transform() == axes_of(figure).transAxes
+    assert artist.get_fontsize() == 15
+    assert artist.get_color() == '#336699'
+
+
+def test_text_annotations_are_included_in_scatter_exports(
+    scatter_dataset: Dataset,
+    tmp_path: Path,
+) -> None:
+    figure = plot_dataset(
+        scatter_dataset,
+        PlotConfig(chart='scatter', annotations=(TextAnnotation('Exported label', 0.5, 0.5),)),
+    )
+    output = tmp_path / 'annotation.svg'
+    figure.savefig(output, format='svg')
+
+    assert 'graph-annotation-0' in output.read_text(encoding='utf-8')
 
 
 @pytest.mark.parametrize('chart', ('box', 'violin', 'box_violin'))

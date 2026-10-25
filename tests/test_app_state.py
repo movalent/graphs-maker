@@ -14,6 +14,7 @@ from src.models import (
     PlotConfig,
     ReferenceLine,
     Sample,
+    TextAnnotation,
     XYPoint,
     XYSeries,
 )
@@ -276,6 +277,47 @@ def test_reset_clears_reference_lines(state: AppState) -> None:
     state.add_reference_line('vertical', 3.0)
     state.reset()
     assert state.config.reference_lines == ()
+
+
+def test_text_annotations_can_be_added_updated_removed_and_undone(state: AppState) -> None:
+    annotation = TextAnnotation('Initial', 0.25, 0.75, 'Verdana', 14, '#ABC')
+    assert state.add_text_annotation(annotation)
+    assert state.config.annotations == (TextAnnotation('Initial', 0.25, 0.75, 'Verdana', 14, '#aabbcc'),)
+    assert state.record_edit()
+
+    assert state.update_text_annotation(0, TextAnnotation('Updated', 0.5, 0.4))
+    assert state.record_edit()
+    assert state.config.annotations[0].text == 'Updated'
+    assert state.undo()
+    assert state.config.annotations[0].text == 'Initial'
+    assert state.redo()
+    assert state.config.annotations[0].text == 'Updated'
+
+    assert state.remove_text_annotation(0)
+    assert state.config.annotations == ()
+    assert not state.remove_text_annotation(0)
+
+
+@pytest.mark.parametrize(
+    'annotation',
+    (
+        TextAnnotation(' ', 0.5, 0.5),
+        TextAnnotation('Text', -0.1, 0.5),
+        TextAnnotation('Text', 0.5, 1.1),
+        TextAnnotation('Text', float('nan'), 0.5),
+        TextAnnotation('Text', 0.5, 0.5, size=0),
+        TextAnnotation('Text', 0.5, 0.5, color='not-a-color'),
+    ),
+)
+def test_invalid_text_annotations_are_refused(state: AppState, annotation: TextAnnotation) -> None:
+    assert not state.add_text_annotation(annotation)
+    assert state.config.annotations == ()
+
+
+def test_reset_clears_text_annotations(state: AppState) -> None:
+    assert state.add_text_annotation(TextAnnotation('Text', 0.5, 0.5))
+    state.reset()
+    assert state.config.annotations == ()
 
 
 def test_the_grouped_layout_is_off_until_it_is_asked_for(state: AppState) -> None:

@@ -29,12 +29,13 @@ from src.models import (
     ORIENTATIONS,
     Dataset,
     Sample,
+    TextAnnotation,
     XYPoint,
     XYSeries,
 )
 from src.preferences import Preferences
 from src.sheet_view import CELL_HEIGHT, CELL_WIDTH, COLUMN_HEADER_HEIGHT, ROW_HEADER_WIDTH, Role
-from src.ui import data_pane, shell, style_tab
+from src.ui import annotations, data_pane, shell, style_tab
 from src.ui.preferences_dialog import PreferencesDialog
 
 if TYPE_CHECKING:
@@ -1030,6 +1031,120 @@ def test_the_pick_handler_is_connected_after_a_redraw(app: GraphPadApp) -> None:
     """
     app.redraw()
     assert app.canvas.callbacks.callbacks.get('pick_event')
+
+
+def test_text_annotations_can_be_placed_dragged_and_undone(
+    app: GraphPadApp,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from matplotlib.backend_bases import MouseEvent
+
+    monkeypatch.setattr(
+        app,
+        '_annotation_editor',
+        lambda initial, _title: TextAnnotation('Placed text', initial.x, initial.y, 'Verdana', 13, '#cc0000'),
+    )
+    app.add_annotation_button.invoke()
+    axes = app.canvas.figure.axes[0]
+    x, y = axes.transAxes.transform((0.3, 0.4))
+    app.canvas.callbacks.process('button_press_event', MouseEvent('button_press_event', app.canvas, x, y, button=1))
+    assert app.state.config.annotations[0].text == 'Placed text'
+    assert app.state.config.annotations[0].x == pytest.approx(0.3, abs=0.005)
+    assert app.state.config.annotations[0].y == pytest.approx(0.4, abs=0.005)
+
+    app.canvas.draw()
+    artist = app._annotation_artists()[0]
+    press_x, press_y = artist.get_transform().transform(artist.get_position())
+    app._on_annotation_press(MouseEvent('button_press_event', app.canvas, press_x, press_y, button=1))
+    move_x, move_y = axes.transAxes.transform((0.65, 0.72))
+    app._on_annotation_motion(MouseEvent('motion_notify_event', app.canvas, move_x, move_y))
+    app._on_annotation_release(MouseEvent('button_release_event', app.canvas, move_x, move_y, button=1))
+
+    assert app.state.config.annotations[0].x == pytest.approx(0.65, abs=0.005)
+    assert app.state.config.annotations[0].y == pytest.approx(0.72, abs=0.005)
+    assert app._undo()
+    assert app.state.config.annotations[0].x == pytest.approx(0.3, abs=0.005)
+    assert app.state.config.annotations[0].y == pytest.approx(0.4, abs=0.005)
+
+
+def test_delete_removes_selected_text_annotation_and_is_undoable(app: GraphPadApp) -> None:
+    annotation = TextAnnotation('Remove me', 0.5, 0.5)
+    assert app.state.add_text_annotation(annotation)
+    assert app.state.record_edit()
+    app._selected_annotation_index = 0
+
+    assert app._delete_selected_annotation(tk.Event()) == 'break'
+    assert app.state.config.annotations == ()
+    assert app._undo()
+    assert app.state.config.annotations == (annotation,)
+
+
+def test_double_click_edits_annotation_text_and_style(
+    app: GraphPadApp,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from matplotlib.backend_bases import MouseEvent
+
+    original = TextAnnotation('Before', 0.5, 0.5)
+    assert app.state.add_text_annotation(original)
+    assert app.state.record_edit()
+    app.redraw(mark_dirty=False)
+    app.canvas.draw()
+    artist = app._annotation_artists()[0]
+    x, y = artist.get_transform().transform(artist.get_position())
+    monkeypatch.setattr(
+        app,
+        '_annotation_editor',
+        lambda current, _title: TextAnnotation(
+            'After', current.x, current.y, 'Verdana', 16, '#123456'
+        ),
+    )
+
+    app._on_annotation_press(MouseEvent('button_press_event', app.canvas, x, y, button=1, dblclick=True))
+
+    assert app.state.config.annotations[0] == TextAnnotation('After', 0.5, 0.5, 'Verdana', 16, '#123456')
+    assert app._undo()
+    assert app.state.config.annotations == (original,)
+
+
+def test_annotation_editor_is_anchored_above_the_text_when_possible() -> None:
+    assert annotations._editor_origin(400, 300, 200, 100, 800, 600) == (300, 192)
+    assert annotations._editor_origin(400, 50, 200, 100, 800, 600) == (300, 58)
+    assert annotations._editor_origin(20, 300, 200, 100, 800, 600) == (0, 192)
+
+
+def test_clicking_annotation_then_copy_paste_duplicates_style_and_undoes(
+    app: GraphPadApp,
+) -> None:
+    from matplotlib.backend_bases import MouseEvent
+
+    original = TextAnnotation('Copied label', 0.4, 0.6, 'Verdana', 17, '#123456')
+    assert app.state.add_text_annotation(original)
+    assert app.state.record_edit()
+    app.redraw(mark_dirty=False)
+    app.canvas.draw()
+
+    artist = app._annotation_artists()[0]
+    x, y = artist.get_transform().transform(artist.get_position())
+    app._on_annotation_press(MouseEvent('button_press_event', app.canvas, x, y, button=1))
+    assert app._selected_annotation_index == 0
+    selection_box = artist.get_bbox_patch()
+    assert selection_box is not None
+    assert selection_box.get_edgecolor() == (0.0, 0.0, 0.0, 1.0)
+    assert selection_box.get_linestyle() == '--'
+    assert selection_box.get_linewidth() == pytest.approx(0.8)
+    assert app._copy_selected_annotation(tk.Event()) == 'break'
+    assert app._paste_annotation(tk.Event()) == 'break'
+
+    duplicate = app.state.config.annotations[1]
+    assert duplicate == TextAnnotation('Copied label', 0.45, 0.65, 'Verdana', 17, '#123456')
+    assert app._selected_annotation_index == 1
+    assert app._annotation_artists()[0].get_bbox_patch() is None
+    assert app._annotation_artists()[1].get_bbox_patch() is not None
+    assert app._undo()
+    assert app.state.config.annotations == (original,)
+    assert app._redo()
+    assert app.state.config.annotations == (original, duplicate)
 
 
 def test_a_bar_accepts_a_pick_from_the_live_canvas(app: GraphPadApp) -> None:

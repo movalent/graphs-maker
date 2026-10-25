@@ -17,7 +17,7 @@ import os
 os.environ.setdefault('MKL_THREADING_LAYER', 'SEQUENTIAL')
 
 from src.excel_reader import ExcelLayoutError, ExcelLayoutWarning, read_dataset, read_table
-from src.models import Dataset, ErrorKind, PlotConfig, Sample
+from src.models import Dataset, ErrorKind, PlotConfig, Sample, TextAnnotation
 from src.plotting import plot_dataset
 
 __all__ = [
@@ -27,6 +27,7 @@ __all__ = [
     'ExcelLayoutWarning',
     'PlotConfig',
     'Sample',
+    'TextAnnotation',
     'plot_dataset',
     'read_dataset',
     'read_table',

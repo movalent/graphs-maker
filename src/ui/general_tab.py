@@ -111,6 +111,8 @@ class GeneralTabMixin(_AppBase):
         self.title_var.trace_add('write', lambda *_: self._update_title())
 
         self._build_title_controls(tab)
+        annotation_panel = section(tab, 'Text annotations')
+        self._build_annotation_controls(annotation_panel)
 
         # The legend and the series names are separate choices: either, both or neither may
         # be shown, so neither is quietly switched off by turning the other on. They sit in

@@ -9,6 +9,7 @@ The package is split so that the parts can be read one at a time:
 - :mod:`src.ui.sample_list` holds the list of samples and the per sample style block.
 - :mod:`src.ui.general_tab`, :mod:`src.ui.axis_tab` and :mod:`src.ui.style_tab` each build
   one tab of the notebook.
+- :mod:`src.ui.annotations` creates, styles and moves free-text labels on the graph.
 - :mod:`src.ui.data_pane` draws the graph, reads the file, and shows the sheet preview.
 
 :mod:`src.app` composes those into the one window and is the module the command line uses.

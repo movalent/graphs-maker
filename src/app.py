@@ -43,6 +43,7 @@ from src.app_state import AppState
 from src.excel_reader import SheetLayout
 from src.models import SAMPLE_CHARTS
 from src.preferences import Preferences, load_preferences
+from src.ui.annotations import AnnotationMixin
 from src.ui.axis_tab import AxisTabMixin
 from src.ui.base import (
     _SYNTHETIC_EVENT,
@@ -77,7 +78,15 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-class GraphPadApp(ShellMixin, SampleListMixin, DataPaneMixin, GeneralTabMixin, AxisTabMixin, StyleTabMixin):
+class GraphPadApp(
+    ShellMixin,
+    SampleListMixin,
+    DataPaneMixin,
+    GeneralTabMixin,
+    AnnotationMixin,
+    AxisTabMixin,
+    StyleTabMixin,
+):
     """The main window, holding the controls on the left and the graph on the right.
 
     The window is one window, so it is written as a class assembled from the parts it is

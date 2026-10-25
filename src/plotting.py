@@ -42,6 +42,7 @@ from src.models import (
     PlotConfig,
     ReferenceLine,
     Sample,
+    TextAnnotation,
     XYPoint,
     XYSeries,
 )
@@ -1387,10 +1388,35 @@ def plot_dataset(dataset: Dataset, config: PlotConfig | None = None) -> Figure:
     """
     settings = config or PlotConfig()
     if settings.chart == 'scatter':
-        return plot_scatter(dataset, settings)
-    if settings.chart == 'bar':
-        return plot_bars(dataset, settings)
-    return plot_distributions(dataset, settings)
+        figure = plot_scatter(dataset, settings)
+    elif settings.chart == 'bar':
+        figure = plot_bars(dataset, settings)
+    else:
+        figure = plot_distributions(dataset, settings)
+    _draw_text_annotations(figure, settings.annotations)
+    return figure
+
+
+def _draw_text_annotations(figure: Figure, annotations: Sequence[TextAnnotation]) -> None:
+    """Draw annotations in normalized coordinates within the primary plot axes."""
+    if not figure.axes:
+        return
+    ax = figure.axes[0]
+    for index, annotation in enumerate(annotations):
+        artist = ax.text(
+            annotation.x,
+            annotation.y,
+            annotation.text,
+            transform=ax.transAxes,
+            horizontalalignment='center',
+            verticalalignment='center',
+            fontsize=annotation.size,
+            fontfamily=_usable_font(annotation.font),
+            color=annotation.color,
+            zorder=10,
+            picker=True,
+        )
+        artist.set_gid(f'graph-annotation-{index}')
 
 
 def plot_bars(dataset: Dataset, config: PlotConfig | None = None) -> Figure:

@@ -192,6 +192,8 @@ class DataPaneMixin(_AppBase):
         # connected once at build time is gone by now and has to be connected again. Without
         # this the graph would look right and still ignore every click.
         self.canvas.mpl_connect('pick_event', self._on_pick)
+        self._connect_annotation_events()
+        self._sync_annotation_selection()
         self.canvas.draw_idle()
         self.preview_stale = False
         self._update_refresh_button()
@@ -215,7 +217,7 @@ class DataPaneMixin(_AppBase):
             event: The matplotlib pick event.
 
         """
-        if self._toolbar_is_active():
+        if self._toolbar_is_active() or self._annotation_placing:
             return
         name = getattr(self.canvas.figure, 'sample_by_bar', {}).get(id(event.artist))
         if not name:

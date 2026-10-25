@@ -243,6 +243,28 @@ class XYSeries:
 
 
 @dataclass(frozen=True, slots=True)
+class TextAnnotation:
+    """A styled text label placed at a plot-relative position.
+
+    Attributes:
+        text: Text shown on the graph.
+        x: Horizontal position within the plot axes, from zero to one.
+        y: Vertical position within the plot axes, from zero to one.
+        font: Font family used to draw the text.
+        size: Text size in points.
+        color: Text color in hexadecimal form.
+
+    """
+
+    text: str
+    x: float
+    y: float
+    font: str = DEFAULT_FONT_TYPE
+    size: int = 12
+    color: str = '#000000'
+
+
+@dataclass(frozen=True, slots=True)
 class Dataset:
     """A complete experiment read from one worksheet.
 
@@ -425,6 +447,7 @@ class PlotConfig:
         axis_line_width: Thickness of the axis lines and the value axis tick marks in points,
             or ``None`` for the Prism default.
         reference_lines: Horizontal and vertical guide lines drawn at their data coordinates.
+        annotations: Free text positioned relative to the plot area.
         bar_line_width: Thickness of the sample mark outlines, error bar lines and group band
             lines in points, or ``None`` for the Prism default.
         chart: Which sort of graph to draw, including sample summaries and scatter plots.
@@ -549,6 +572,7 @@ class PlotConfig:
     label_series: tuple[str, ...] = ()
     series_order: tuple[str, ...] = ()
     reference_lines: tuple[ReferenceLine, ...] = ()
+    annotations: tuple[TextAnnotation, ...] = ()
     alphas: dict[str, float] = field(default_factory=dict)
     curve_fit_enabled: bool = False
     curve_fit_model: CurveFitModel = 'linear'
