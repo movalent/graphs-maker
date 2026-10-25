@@ -13,12 +13,10 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Literal
 
-from src.graphpad_style import DEFAULT_LINE_WIDTH, DEFAULT_PALETTE, default_color
+from src.graphpad_style import DEFAULT_LINE_WIDTH, default_color
 from src.models import (
-    DEFAULT_CONNECT_POINTS,
     DEFAULT_DECIMALS,
     DEFAULT_LABEL_ROTATION,
-    DEFAULT_LEGEND_POSITION,
     DEFAULT_POINT_TYPE,
     DEFAULT_REFERENCE_LINE_COLOR,
     DEFAULT_REFERENCE_LINE_STYLE,
@@ -38,6 +36,7 @@ from src.models import (
     ReferenceLineOrientation,
     Sample,
 )
+from src.preferences import Preferences
 
 FALLBACK_COLOR = '#000000'
 HEX_PATTERN = re.compile(r'^#(?:[0-9a-f]{3}|[0-9a-f]{6})$', re.IGNORECASE)
@@ -50,7 +49,7 @@ MIN_LINE_WIDTH = 0.1
 MAX_LINE_WIDTH = 10.0
 # Which of the two sets of lines a thickness applies to: the frame of the graph, or the bars.
 LineTarget = Literal['axis', 'bar']
-HISTORY_LIMIT = 20
+HISTORY_LIMIT = Preferences().undo_history_limit
 HATCH_PATTERNS: tuple[str, ...] = ('', '//', '\\\\\\', '|||', '---', '+++', 'xxx', 'ooo', 'OOO', '...', '***')
 # The same patterns as they are offered in the window. The two tuples are index aligned, so a
 # pattern is picked from the list by the same position that the user sees.
@@ -140,16 +139,25 @@ class AppState:
 
     """
 
-    def __init__(self, dataset: Dataset, config: PlotConfig | None = None) -> None:
+    def __init__(
+        self,
+        dataset: Dataset,
+        config: PlotConfig | None = None,
+        preferences: Preferences | None = None,
+    ) -> None:
         """Create the state for one dataset.
 
         Args:
             dataset: The experiment read from the input file.
             config: Initial settings; a default configuration is used when omitted.
+            preferences: Application defaults to apply when ``config`` is omitted.
 
         """
         self.dataset = dataset
+        self.preferences = preferences or Preferences()
         self.config = config or PlotConfig()
+        if config is None:
+            self._apply_preferences_to_config()
         self.columns: tuple[int, ...] | None = None
         self.sheet_order = tuple(sample.name for sample in dataset.samples)
         self.sheet_series_order = tuple(series.name for series in dataset.series)
@@ -165,6 +173,19 @@ class AppState:
         if not self.config.series_order:
             self.config.series_order = self.sheet_series_order
         self._history_current = self._snapshot()
+
+    def _apply_preferences_to_config(self) -> None:
+        """Apply application defaults to a newly created graph configuration."""
+        settings = self.preferences
+        self.config.chart = 'scatter' if self.dataset.series else settings.default_chart
+        self.config.orientation = settings.default_orientation
+        self.config.error_kind = settings.default_error_kind
+        self.config.color_by = settings.default_color_by
+        self.config.palette = settings.default_palette
+        self.config.jitter = settings.default_jitter
+        self.config.show_points = settings.default_show_points
+        self.config.connect_points = settings.default_connect_points
+        self.config.legend_position = settings.default_legend_position
 
     def _snapshot(self) -> _StateSnapshot:
         """Copy the editable state while retaining immutable data objects by reference."""
@@ -242,7 +263,7 @@ class AppState:
             return False
         if coalesce is None or coalesce is not self._coalescing_edit:
             self._undo_stack.append(self._history_current)
-            del self._undo_stack[:-HISTORY_LIMIT]
+            del self._undo_stack[:-self.preferences.undo_history_limit]
             self._redo_stack.clear()
         self._history_current = current
         self._coalescing_edit = coalesce
@@ -258,7 +279,7 @@ class AppState:
         if not self._undo_stack:
             return False
         self._redo_stack.append(self._snapshot())
-        del self._redo_stack[:-HISTORY_LIMIT]
+        del self._redo_stack[:-self.preferences.undo_history_limit]
         self._restore(self._undo_stack.pop())
         return True
 
@@ -272,7 +293,7 @@ class AppState:
         if not self._redo_stack:
             return False
         self._undo_stack.append(self._snapshot())
-        del self._undo_stack[:-HISTORY_LIMIT]
+        del self._undo_stack[:-self.preferences.undo_history_limit]
         self._restore(self._redo_stack.pop())
         return True
 
@@ -282,6 +303,18 @@ class AppState:
         self._redo_stack.clear()
         self._coalescing_edit = None
         self._history_current = self._snapshot()
+
+    def set_preferences(self, preferences: Preferences) -> None:
+        """Update application defaults and enforce the chosen history capacity.
+
+        Args:
+            preferences: New persistent application preferences.
+
+        """
+        self.preferences = preferences
+        limit = preferences.undo_history_limit
+        self._undo_stack = self._undo_stack[-limit:]
+        self._redo_stack = self._redo_stack[-limit:]
 
     def replace_dataset(self, dataset: Dataset) -> None:
         """Swap in a freshly read dataset, keeping the current settings.
@@ -916,6 +949,9 @@ class AppState:
         The column selection is reset as well, so a sample that was left out of the graph in
         the data preview comes back.
         """
+        settings = self.preferences
+        self.config.palette = settings.default_palette
+        self.config.color_by = settings.default_color_by
         self.reset_colors()
         self.set_columns(None)
         self.config.group_overrides.clear()
@@ -933,15 +969,15 @@ class AppState:
         self.config.title = None
         self.config.title_position = DEFAULT_TITLE_POSITION
         self.config.title_font = None
-        self.config.error_kind = 'sd'
-        self.config.color_by = 'sample'
-        self.config.palette = DEFAULT_PALETTE
+        self.config.error_kind = settings.default_error_kind
         self.config.grouped_layout = False
-        self.config.jitter = 0.0
-        self.config.show_points = True
+        self.config.jitter = settings.default_jitter
+        self.config.show_points = settings.default_show_points
         self.config.show_legend = True
-        self.config.legend_position = DEFAULT_LEGEND_POSITION
-        self.config.connect_points = DEFAULT_CONNECT_POINTS
+        self.config.legend_position = settings.default_legend_position
+        self.config.connect_points = settings.default_connect_points
+        self.config.chart = 'scatter' if self.dataset.series else settings.default_chart
+        self.config.orientation = settings.default_orientation
         self.config.legend_font = None
         self.config.y_label = None
         self.config.y_max = None

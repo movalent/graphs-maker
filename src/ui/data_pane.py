@@ -171,6 +171,12 @@ class DataPaneMixin(_AppBase):
                 pass ``False``.
 
         """
+        if mark_dirty and not self.preferences.auto_refresh_preview:
+            self.preview_stale = True
+            self._mark_dirty()
+            self._update_refresh_button()
+            return
+
         figure = plot_dataset(self.state.dataset, self.state.config)
         natural_width, natural_height = (float(value) for value in figure.get_size_inches())
         self._natural_figure_size = natural_width, natural_height
@@ -187,6 +193,8 @@ class DataPaneMixin(_AppBase):
         # this the graph would look right and still ignore every click.
         self.canvas.mpl_connect('pick_event', self._on_pick)
         self.canvas.draw_idle()
+        self.preview_stale = False
+        self._update_refresh_button()
         if mark_dirty:
             self._mark_dirty()
     def _on_pick(self, event: PickEvent) -> None:
@@ -847,13 +855,13 @@ class DataPaneMixin(_AppBase):
             messagebox.showerror('Cannot open file', f'{path.name}\n\n{error}', parent=self.root)
             return False
 
-        self.state = AppState(dataset)
+        self.state = AppState(dataset, preferences=self.preferences)
         self.available_chart_kinds = ('scatter',) if scatter_layout is not None else SAMPLE_CHARTS
         if scatter_layout is not None:
             self.state.config.chart = 'scatter'
         self.state.set_columns(None)
         self.input_path = path
-        self.last_dir = str(path.parent)
+        self._remember_directory('input', path.parent)
         self.dirty = False
         self.file_var.set(self._file_label())
         self._sync_from_state()
@@ -879,16 +887,21 @@ class DataPaneMixin(_AppBase):
         return True
     def _open_file(self) -> None:
         """Ask for a workbook and load it, confirming first if there are unsaved changes."""
-        if self.dirty and not messagebox.askyesno(
+        if self.preferences.show_confirmations and self.dirty and not messagebox.askyesno(
             'Discard changes?',
             'The graph has unsaved adjustments. Open another file anyway?',
             parent=self.root,
         ):
             return
+        initial_dir = (
+            self.last_input_dir
+            if self.preferences.remember_last_directories
+            else self.preferences.default_input_dir or '.'
+        )
         chosen = filedialog.askopenfilename(
             parent=self.root,
             title='Open Excel file',
-            initialdir=self.last_dir,
+            initialdir=initial_dir,
             filetypes=[('Excel workbooks', '*.xlsx *.xlsm'), ('All files', '*.*')],
         )
         if chosen:

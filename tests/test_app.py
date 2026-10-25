@@ -32,8 +32,10 @@ from src.models import (
     XYPoint,
     XYSeries,
 )
+from src.preferences import Preferences
 from src.sheet_view import CELL_HEIGHT, CELL_WIDTH, COLUMN_HEADER_HEIGHT, ROW_HEADER_WIDTH, Role
 from src.ui import data_pane, shell, style_tab
+from src.ui.preferences_dialog import PreferencesDialog
 
 if TYPE_CHECKING:
     from src.app import GraphPadApp
@@ -66,6 +68,8 @@ def _stub_dialogs(monkeypatch: pytest.MonkeyPatch) -> None:
 @pytest.fixture(autouse=True)
 def _withdraw_new_tk_roots(monkeypatch: pytest.MonkeyPatch) -> None:
     """Withdraw each Tk root immediately so GUI tests never expose a window."""
+    from src import app as app_module
+
     create_root = tk.Tk
 
     def create_withdrawn_root(*args: Any, **kwargs: Any) -> tk.Tk:
@@ -74,6 +78,8 @@ def _withdraw_new_tk_roots(monkeypatch: pytest.MonkeyPatch) -> None:
         return root
 
     monkeypatch.setattr(tk, 'Tk', create_withdrawn_root)
+    monkeypatch.setattr(app_module, 'load_preferences', lambda: Preferences())
+    monkeypatch.setattr(shell, 'save_preferences', lambda _preferences: None)
 
 
 def _hide(window: GraphPadApp) -> None:
@@ -94,7 +100,7 @@ def app(state: AppState, monkeypatch: pytest.MonkeyPatch) -> Iterator[GraphPadAp
 
     _stub_dialogs(monkeypatch)
     try:
-        window = GraphPadApp(state, INPUT_FILE)
+        window = GraphPadApp(state, INPUT_FILE, preferences=Preferences())
     except Exception as error:  # pragma: no cover - only on a machine with no display
         pytest.skip(f'No usable display: {error}')
     _hide(window)
@@ -107,6 +113,82 @@ def app(state: AppState, monkeypatch: pytest.MonkeyPatch) -> Iterator[GraphPadAp
 def test_window_builds_and_draws(app: GraphPadApp) -> None:
     assert row_count(app) == 3
     assert len(app.canvas.figure.axes) == 1
+
+
+def test_preferences_dialog_has_four_tabs_and_applies_values() -> None:
+    root = tk.Tk()
+    root.withdraw()
+    applied: list[Preferences] = []
+    dialog = PreferencesDialog(root, Preferences(), lambda preferences: applied.append(preferences) is None)
+    notebook = next(widget for widget in dialog.window.winfo_children() if isinstance(widget, ttk.Notebook))
+    dialog._strings['default_chart'].set('Violin plot')
+    dialog._reset()
+    assert dialog._read_preferences() == Preferences()
+    dialog._strings['default_chart'].set('Box plot')
+
+    assert len(notebook.tabs()) == 4
+    assert dialog._apply_changes()
+    assert applied[0].default_chart == 'box'
+
+    dialog.window.destroy()
+    root.destroy()
+
+
+def test_preferences_are_available_from_file_menu_and_keyboard_shortcut(app: GraphPadApp) -> None:
+    assert app.root.bind('<Control-comma>')
+    menu = app.root.nametowidget(app.root.cget('menu'))
+    file_menu = next(widget for widget in menu.winfo_children() if isinstance(widget, tk.Menu))
+    menu_items = [
+        (index, file_menu.entrycget(index, 'label'))
+        for index in range(file_menu.index('end') + 1)
+        if file_menu.type(index) == 'command'
+    ]
+
+    preference_index = next(index for index, label in menu_items if label == 'Preferences…')
+    assert file_menu.entrycget(preference_index, 'accelerator') == 'Ctrl+,'
+
+
+def test_applying_preferences_keeps_current_graph_and_reset_uses_defaults(
+    app: GraphPadApp,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(shell, 'save_preferences', lambda _preferences: None)
+    app.state.config.title = 'Graph-specific title'
+    preferences = Preferences(
+        default_chart='violin',
+        default_orientation='horizontal',
+        panel_width=320,
+        auto_refresh_preview=False,
+    )
+
+    assert app._apply_preferences(preferences)
+    assert app.state.config.title == 'Graph-specific title'
+    assert app.state.config.chart == 'bar'
+    assert app.state.preferences == preferences
+    app._remember_directory('input', Path('C:/new-input'))
+    app._remember_directory('output', Path('C:/new-output'))
+    assert app.preferences.last_input_dir == str(Path('C:/new-input'))
+    assert app.preferences.last_output_dir == str(Path('C:/new-output'))
+
+    figure = app.canvas.figure
+    app.state.config.title = 'Deferred preview title'
+    app.redraw()
+    assert app.canvas.figure is figure
+    assert app.preview_stale
+    assert str(app.refresh_button.cget('state')) == 'normal'
+    app.redraw(mark_dirty=False)
+    assert app.canvas.figure is not figure
+    assert not app.preview_stale
+    assert str(app.refresh_button.cget('state')) == 'disabled'
+
+    app._reset()
+
+    assert app.state.config.title is None
+    assert app.state.config.chart == 'violin'
+    assert app.state.config.orientation == 'horizontal'
+    assert int(app.panel.cget('width')) == 320
+    assert app.load_file(INPUT_FILE)
+    assert app.state.config.chart == 'violin'
 
 
 @pytest.mark.undo_redo
@@ -761,7 +843,7 @@ def grouped_app(monkeypatch: pytest.MonkeyPatch) -> Iterator[GraphPadApp]:
     )
     _stub_dialogs(monkeypatch)
     try:
-        window = GraphPadApp(AppState(dataset), INPUT_FILE)
+        window = GraphPadApp(AppState(dataset), INPUT_FILE, preferences=Preferences())
     except Exception as error:  # pragma: no cover - only on a machine with no display
         pytest.skip(f'No usable display: {error}')
     _hide(window)
@@ -776,7 +858,11 @@ def test_style_panel_is_hidden_with_no_samples_to_style(state: AppState, monkeyp
     from src.app import GraphPadApp
 
     _stub_dialogs(monkeypatch)
-    empty = GraphPadApp(AppState(Dataset(samples=(), y_label='Value')), INPUT_FILE)
+    empty = GraphPadApp(
+        AppState(Dataset(samples=(), y_label='Value')),
+        INPUT_FILE,
+        preferences=Preferences(),
+    )
     _hide(empty)
     try:
         assert empty.style_frame.winfo_manager() == ''
@@ -1780,7 +1866,7 @@ def test_saving_uses_the_natural_figure_size(
     app._save('pdf')
 
     assert saved_sizes == [natural_size]
-    assert save_options == [{'format': 'pdf', 'bbox_inches': 'tight', 'transparent': False}]
+    assert save_options == [{'format': 'pdf', 'dpi': 300, 'bbox_inches': 'tight', 'transparent': False}]
     assert dialog_options[0]['initialfile'] == 'graph.pdf'
     assert app.output_hint == tmp_path / 'graph.pdf'
     assert prompt_options[0]['default'] == shell.messagebox.NO
@@ -1817,7 +1903,7 @@ def test_saving_with_transparency_clears_label_boxes_and_restores_them(
 
     app._save('png')
 
-    assert saved_options == [{'format': 'png', 'bbox_inches': 'tight', 'transparent': True}]
+    assert saved_options == [{'format': 'png', 'dpi': 300, 'bbox_inches': 'tight', 'transparent': True}]
     assert saved_facecolors[0][-1] == 0.0
     assert saved_legend_facecolors[0][-1] == 0.0
     assert patch.get_facecolor() == original_facecolor
@@ -2019,7 +2105,11 @@ def test_the_bar_style_block_hides_with_no_selection(state: AppState, monkeypatc
     from src.app import GraphPadApp
 
     _stub_dialogs(monkeypatch)
-    window = GraphPadApp(AppState(Dataset(samples=(), y_label='Value')), INPUT_FILE)
+    window = GraphPadApp(
+        AppState(Dataset(samples=(), y_label='Value')),
+        INPUT_FILE,
+        preferences=Preferences(),
+    )
     _hide(window)
     try:
         assert 'Clear style' not in _captions_in(_tab_frame(window, 2))
@@ -3035,7 +3125,7 @@ def blank_app(monkeypatch: pytest.MonkeyPatch) -> Iterator[GraphPadApp]:
 
     _stub_dialogs(monkeypatch)
     try:
-        window = GraphPadApp()
+        window = GraphPadApp(preferences=Preferences())
     except Exception as error:  # pragma: no cover - only on a machine with no display
         pytest.skip(f'No usable display: {error}')
     _hide(window)

@@ -22,6 +22,7 @@ import sys
 import tkinter as tk
 from collections.abc import Sequence
 from pathlib import Path
+from tkinter import font as tkfont
 from tkinter import ttk
 
 # Running this file directly, as ``python src/app.py``, puts src/ on sys.path instead of
@@ -41,12 +42,12 @@ os.environ.setdefault('MKL_THREADING_LAYER', 'SEQUENTIAL')
 from src.app_state import AppState
 from src.excel_reader import SheetLayout
 from src.models import SAMPLE_CHARTS
+from src.preferences import Preferences, load_preferences
 from src.ui.axis_tab import AxisTabMixin
 from src.ui.base import (
     _SYNTHETIC_EVENT,
     MIN_CANVAS_WIDTH,
     MIN_WINDOW_HEIGHT,
-    PANEL_WIDTH,
 )
 from src.ui.data_pane import EMPTY_DATASET, DataPaneMixin
 from src.ui.general_tab import GeneralTabMixin
@@ -106,6 +107,7 @@ class GraphPadApp(ShellMixin, SampleListMixin, DataPaneMixin, GeneralTabMixin, A
         state: AppState | None = None,
         input_path: Path | None = None,
         output_hint: Path | None = None,
+        preferences: Preferences | None = None,
     ) -> None:
         """Build the window and draw the graph once.
 
@@ -114,29 +116,42 @@ class GraphPadApp(ShellMixin, SampleListMixin, DataPaneMixin, GeneralTabMixin, A
                 the window can be opened before a file is chosen.
             input_path: Source workbook, used to suggest a name when saving.
             output_hint: Path suggested by default when saving.
+            preferences: Application defaults, loaded from disk when omitted.
 
         """
-        self.state = state or AppState(EMPTY_DATASET)
+        self.preferences = preferences or load_preferences()
+        self.state = state or AppState(EMPTY_DATASET, preferences=self.preferences)
+        self.state.preferences = self.preferences
         is_xy_data = bool(self.state.dataset.series) or self.state.config.chart == 'scatter'
         self.available_chart_kinds = ('scatter',) if is_xy_data else SAMPLE_CHARTS
         if is_xy_data:
             self.state.config.chart = 'scatter'
         self.input_path = input_path
         self.output_hint = output_hint
+        self._output_hint_explicit = output_hint is not None
         self.dirty = False
+        self.preview_stale = False
         self._history_suspended = False
-        self.last_dir = '.'
+        self.last_input_dir = (
+            self.preferences.last_input_dir if self.preferences.remember_last_directories else ''
+        ) or self.preferences.default_input_dir or '.'
+        self.last_output_dir = (
+            self.preferences.last_output_dir if self.preferences.remember_last_directories else ''
+        ) or self.preferences.default_output_dir or '.'
+        self.last_dir = self.last_input_dir
         self.syncing = False
         # The rows chosen for each workbook, so a sheet is only asked about once. Keyed by
         # file name rather than path because the choice belongs to the sheet, not to where
         # the file happens to sit.
         self._remembered_layout: dict[str, SheetLayout] = {}
         self.palette_popup: tk.Toplevel | None = None
+        self._ui_fonts: list[tkfont.Font] = []
+        self._initial_wraplengths: dict[str, int] = {}
 
         self.root = tk.Tk()
         self.root.title('GraphPad Prism style graph')
         self.root.geometry('1100x720')
-        self.root.minsize(PANEL_WIDTH + MIN_CANVAS_WIDTH, MIN_WINDOW_HEIGHT)
+        self.root.minsize(self.preferences.panel_width + MIN_CANVAS_WIDTH, MIN_WINDOW_HEIGHT)
         self.root.bind('<Control-z>', self._undo_shortcut)
         self.root.bind('<Control-y>', self._redo_shortcut)
         self.root.bind('<Control-Shift-KeyPress-Z>', self._redo_shortcut)
@@ -147,8 +162,9 @@ class GraphPadApp(ShellMixin, SampleListMixin, DataPaneMixin, GeneralTabMixin, A
 
         self._build_controls()
         self._build_canvas()
+        self._apply_ui_preferences()
         self._sync_from_state()
-        self.redraw()
+        self.redraw(mark_dirty=False)
         if self.state.dataset.samples:
             self._select_row(0)
 

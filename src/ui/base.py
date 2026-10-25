@@ -19,6 +19,7 @@ from __future__ import annotations
 import tkinter as tk
 from collections.abc import Sequence
 from pathlib import Path
+from tkinter import font as tkfont
 from tkinter import ttk
 from typing import TYPE_CHECKING, cast
 
@@ -29,6 +30,7 @@ if TYPE_CHECKING:
     from src.app_state import AppState
     from src.excel_reader import SheetLayout
     from src.models import ChartKind, ReferenceLine, ReferenceLineOrientation
+    from src.preferences import Preferences
     from src.sheet_view import SheetView
 
 # The measurements of the window itself, which every part has to agree on and no part owns.
@@ -60,20 +62,28 @@ class _AppBase:
     state: AppState
     input_path: Path | None
     output_hint: Path | None
+    _output_hint_explicit: bool
     # Set when the graph no longer matches the settings, and cleared by a reset.
     dirty: bool
+    preview_stale: bool
+    preferences: Preferences
     # Suppresses history entries while a multi-part action such as Reset is applied.
     _history_suspended: bool
     # The directory the file chooser opens in, so it opens where the user last was.
     last_dir: str
+    last_input_dir: str
+    last_output_dir: str
     # Suppresses the callbacks while the state is being pushed onto the widgets.
     syncing: bool
     # The rows chosen for each sheet, so one is only asked about once. Keyed by file name
     # rather than path, because the choice belongs to the sheet, not to where it sits.
     _remembered_layout: dict[str, SheetLayout]
+    _initial_wraplengths: dict[str, int]
 
     root: tk.Tk
     panel: ttk.Frame
+    refresh_button: ttk.Button
+    _ui_fonts: list[tkfont.Font]
     # The canvas holding the scrollable column of options, which the wheel is bound to.
     _body_canvas: tk.Canvas
     _body_inner: ttk.Frame
@@ -221,6 +231,12 @@ class _AppBase:
 
     def _mark_dirty(self) -> None:
         """Record that the graph no longer matches the settings."""
+
+    def _update_refresh_button(self) -> None:
+        """Enable or disable manual graph refresh based on preview state."""
+
+    def _remember_directory(self, kind: str, directory: Path) -> None:
+        """Remember a selected input or output directory when enabled."""
 
     def _text_widget_focused(self) -> bool:
         """Return whether a text-editing widget owns focus."""

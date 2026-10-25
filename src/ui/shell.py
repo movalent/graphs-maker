@@ -9,13 +9,17 @@ only decides where the settings are put.
 from __future__ import annotations
 
 import tkinter as tk
+from dataclasses import replace
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
+from tkinter import font as tkfont
 
 from matplotlib.text import Text
 
 from src.cli import resolve_output
-from src.ui.base import _SYNTHETIC_EVENT, NO_FILE, PANEL_WIDTH, _AppBase
+from src.preferences import Preferences, save_preferences
+from src.ui.base import _SYNTHETIC_EVENT, MIN_CANVAS_WIDTH, MIN_WINDOW_HEIGHT, NO_FILE, PANEL_WIDTH, _AppBase
+from src.ui.preferences_dialog import PreferencesDialog
 from src.ui.widgets import bind_wheel, wheel_units
 
 
@@ -166,7 +170,8 @@ class ShellMixin(_AppBase):
         The colour row and the notebook tabs are kept fixed at the top so they never
         scroll out of view. Only the active tab's content lives in the scrollable area.
         """
-        panel = ttk.Frame(self.root, padding=8, width=PANEL_WIDTH)
+        self._build_menu()
+        panel = ttk.Frame(self.root, padding=8, width=self.preferences.panel_width)
         panel.pack(side=tk.LEFT, fill=tk.Y)
         panel.pack_propagate(False)
         self.panel = panel
@@ -190,6 +195,155 @@ class ShellMixin(_AppBase):
         # Tab content must be a real child of the canvas inner frame so the canvas clips it.
         self._build_tabs(header)
 
+    def _build_menu(self) -> None:
+        """Create the application menu and its Preferences shortcut."""
+        menu = tk.Menu(self.root)
+        file_menu = tk.Menu(menu, tearoff=False)
+        file_menu.add_command(label='Open…', command=self._open_file)
+        file_menu.add_command(
+            label='Export…',
+            command=lambda: self._save(self.preferences.default_export_format),
+        )
+        file_menu.add_separator()
+        file_menu.add_command(
+            label='Preferences…',
+            command=self._open_preferences,
+            accelerator='Ctrl+,',
+        )
+        file_menu.add_separator()
+        file_menu.add_command(label='Exit', command=self.root.destroy)
+        menu.add_cascade(label='File', menu=file_menu)
+        self.root.configure(menu=menu)
+        self.root.bind('<Control-comma>', self._preferences_shortcut)
+
+    def _preferences_shortcut(self, _event: tk.Event[tk.Misc]) -> str:
+        """Open Preferences from Ctrl+, without allowing the key to reach another control."""
+        self._open_preferences()
+        return 'break'
+
+    def _open_preferences(self) -> None:
+        """Show the application preferences dialog."""
+        PreferencesDialog(self.root, self.preferences, self._apply_preferences)
+
+    def _apply_preferences(self, preferences: Preferences) -> bool:
+        """Save and activate preferences without changing the current graph configuration."""
+        try:
+            save_preferences(preferences)
+        except OSError as error:
+            messagebox.showerror('Preferences not saved', str(error), parent=self.root)
+            return False
+        self.preferences = preferences
+        self.state.set_preferences(preferences)
+        if not self._output_hint_explicit:
+            self.output_hint = None
+            self.file_var.set(self._file_label())
+        self.last_input_dir = (
+            preferences.last_input_dir if preferences.remember_last_directories else ''
+        ) or preferences.default_input_dir or '.'
+        self.last_output_dir = (
+            preferences.last_output_dir if preferences.remember_last_directories else ''
+        ) or preferences.default_output_dir or '.'
+        self.last_dir = self.last_input_dir
+        self._apply_ui_preferences()
+        self._update_refresh_button()
+        if preferences.auto_refresh_preview and self.preview_stale:
+            self.redraw(mark_dirty=False)
+        return True
+
+    def _apply_ui_preferences(self, apply_panel: bool = True) -> None:
+        """Apply UI fonts and, at startup, the configured control-panel width."""
+        style = ttk.Style(self.root)
+        font_spec = (self.preferences.ui_font_family, self.preferences.ui_font_size)
+        style.configure('.', font=font_spec)
+        style.configure('Treeview', font=font_spec)
+        style.configure('Treeview.Heading', font=(*font_spec, 'bold'))
+        if apply_panel:
+            self.panel.configure(width=self.preferences.panel_width)
+            self.root.minsize(
+                self.preferences.panel_width + MIN_CANVAS_WIDTH,
+                MIN_WINDOW_HEIGHT,
+            )
+
+        fonts: dict[tuple[str, str], tkfont.Font] = {}
+        if not self._initial_wraplengths:
+            self._record_wraplengths(self.root)
+
+        def update_widget(widget: tk.Misc) -> None:
+            options = set(widget.keys())
+            if 'wraplength' in options:
+                original_width = self._initial_wraplengths.get(str(widget), 0)
+                if original_width > 0:
+                    wrap_adjustment = PANEL_WIDTH - original_width
+                    widget.tk.call(
+                        str(widget),
+                        'configure',
+                        '-wraplength',
+                        max(100, self.preferences.panel_width - wrap_adjustment),
+                    )
+            if 'font' in options:
+                current = widget.cget('font')
+                if current:
+                    parsed = tkfont.Font(root=self.root, font=current)
+                    actual = parsed.actual()
+                    key = (str(actual['weight']), str(actual['slant']))
+                    if key not in fonts:
+                        fonts[key] = tkfont.Font(
+                            root=self.root,
+                            family=self.preferences.ui_font_family,
+                            size=self.preferences.ui_font_size,
+                            weight='bold' if key[0] == 'bold' else 'normal',
+                            slant='italic' if key[1] == 'italic' else 'roman',
+                        )
+                    widget.tk.call(str(widget), 'configure', '-font', fonts[key].name)
+            for child in widget.winfo_children():
+                update_widget(child)
+
+        update_widget(self.root)
+        self._ui_fonts = list(fonts.values())
+
+    def _record_wraplengths(self, widget: tk.Misc) -> None:
+        """Remember existing wrap widths so subsequent preference changes remain stable."""
+        for child in widget.winfo_children():
+            if 'wraplength' in set(child.keys()):
+                try:
+                    width = int(child.cget('wraplength'))
+                except (TypeError, ValueError, tk.TclError):
+                    width = 0
+                if width > 0:
+                    self._initial_wraplengths[str(child)] = width
+            self._record_wraplengths(child)
+
+    def _update_refresh_button(self) -> None:
+        """Enable manual refresh only while graph preview updates are paused."""
+        if hasattr(self, 'refresh_button'):
+            should_show = not self.preferences.auto_refresh_preview
+            if should_show and not self.refresh_button.winfo_manager():
+                self.refresh_button.pack(side=tk.BOTTOM, fill=tk.X, pady=(0, 4))
+            elif not should_show and self.refresh_button.winfo_manager():
+                self.refresh_button.pack_forget()
+            self.refresh_button.configure(
+                state='normal' if not self.preferences.auto_refresh_preview and self.preview_stale else 'disabled'
+            )
+
+    def _remember_directory(self, kind: str, directory: Path) -> None:
+        """Persist the last-used folder when directory remembering is enabled."""
+        if not self.preferences.remember_last_directories:
+            return
+        if kind == 'input':
+            self.last_input_dir = str(directory)
+            updated = replace(self.preferences, last_input_dir=self.last_input_dir)
+        else:
+            self.last_output_dir = str(directory)
+            updated = replace(self.preferences, last_output_dir=self.last_output_dir)
+        self.last_dir = self.last_input_dir
+        try:
+            save_preferences(updated)
+        except OSError as error:
+            messagebox.showerror('Preferences not saved', str(error), parent=self.root)
+            return
+        self.preferences = updated
+        self.state.set_preferences(updated)
+
     def _build_action_buttons(self, panel: ttk.Frame) -> None:
         """Create the buttons that stay pinned to the bottom of the panel.
 
@@ -198,6 +352,13 @@ class ShellMixin(_AppBase):
 
         """
         ttk.Separator(panel).pack(side=tk.BOTTOM, fill=tk.X, pady=6)
+        self.refresh_button = ttk.Button(
+            panel,
+            text='Refresh graph',
+            command=lambda: self.redraw(mark_dirty=False),
+            state='disabled',
+        )
+        self.refresh_button.pack(side=tk.BOTTOM, fill=tk.X, pady=(0, 4))
         ttk.Button(panel, text='Save PDF…', command=lambda: self._save('pdf')).pack(side=tk.BOTTOM, fill=tk.X)
         ttk.Button(panel, text='Save PNG…', command=lambda: self._save('png')).pack(
             side=tk.BOTTOM, fill=tk.X, pady=(4, 0)
@@ -346,36 +507,46 @@ class ShellMixin(_AppBase):
         if self.output_hint is not None:
             return f'Will save to {self.output_hint.name}'
         return NO_FILE
-    def _save(self, image_format: str) -> None:
+    def _save(self, image_format: str | None = None) -> None:
         """Save the current graph through a file dialog.
 
         Args:
-            image_format: File format extension, ``'png'`` or ``'pdf'``.
+            image_format: File format extension, or the configured default when omitted.
 
         """
+        image_format = image_format or self.preferences.default_export_format
         if not self.state.dataset.samples and not self.state.dataset.series:
             messagebox.showinfo('Nothing to save', 'Open an Excel file first.', parent=self.root)
             return
         suggested = self.output_hint or resolve_output(self.input_path or Path('graph'), None, image_format)
+        if self.output_hint is None and self.preferences.default_output_dir:
+            suggested = Path(self.preferences.default_output_dir) / suggested.name
+        if self.output_hint is None and self.preferences.last_output_dir and self.preferences.remember_last_directories:
+            suggested = Path(self.preferences.last_output_dir) / suggested.name
         suggested = suggested.with_suffix(f'.{image_format}')
         target = filedialog.asksaveasfilename(
             parent=self.root,
             title='Save graph',
             defaultextension=f'.{image_format}',
-            initialdir=str(suggested.parent) if str(suggested.parent) else self.last_dir,
+            initialdir=str(suggested.parent) if str(suggested.parent) else self.last_output_dir,
             initialfile=suggested.name,
-            filetypes=[(image_format.upper(), f'*.{image_format}'), ('All files', '*.*')],
+            filetypes=[(f'{image_format.upper()} image', f'*.{image_format}'), ('All files', '*.*')],
         )
         if not target:
             return
-        transparent = messagebox.askyesnocancel(
-            'Export background',
-            'Use a transparent background? Choose No for white.',
-            parent=self.root,
-            default=messagebox.NO,
-        )
-        if transparent is None:
-            return
+        transparent = self.preferences.default_transparent_background
+        if self.preferences.show_confirmations:
+            chosen_transparency = messagebox.askyesnocancel(
+                'Export background',
+                'Use a transparent background? Choose No for white.',
+                parent=self.root,
+                default=messagebox.YES if transparent else messagebox.NO,
+            )
+            if chosen_transparency is None:
+                return
+            transparent = chosen_transparency
+        if image_format == 'jpg':
+            transparent = False
         path = Path(target)
         if path.suffix.lower() != f'.{image_format}':
             path = path.with_suffix(f'.{image_format}')
@@ -397,14 +568,20 @@ class ShellMixin(_AppBase):
             if transparent:
                 for patch, _facecolor in background_patches:
                     patch.set_facecolor('none')
-            figure.savefig(path, format=image_format, bbox_inches='tight', transparent=transparent)
+            figure.savefig(
+                path,
+                format=image_format,
+                dpi=self.preferences.default_export_dpi,
+                bbox_inches='tight',
+                transparent=transparent,
+            )
         finally:
             for patch, facecolor in background_patches:
                 patch.set_facecolor(facecolor)
             figure.set_size_inches(display_width, display_height, forward=False)
             self.canvas.draw_idle()
         self.output_hint = path
-        self.last_dir = str(path.parent)
+        self._remember_directory('output', path.parent)
         self.dirty = False
         self.file_var.set(self._file_label())
         self.root.title(f'{path.name} — GraphPad Prism style graph')
