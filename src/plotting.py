@@ -34,6 +34,7 @@ from src.models import (
     SOLID_POINTS,
     Y_MAX_HEADROOM,
     Dataset,
+    ErrorBarDirection,
     LegendPosition,
     PlotConfig,
     ReferenceLine,
@@ -403,6 +404,18 @@ def _apply_minor_ticks(ax: Axes, config: PlotConfig, *, x_axis: bool = True, y_a
         else:
             continue
         ax.tick_params(axis=name, which='minor', length=2.0)
+
+
+def _directional_errors(
+    errors: Sequence[float],
+    direction: ErrorBarDirection,
+) -> list[float] | list[list[float]]:
+    """Return symmetric or one-sided error magnitudes for matplotlib."""
+    if direction == 'both':
+        return list(errors)
+    zeros = [0.0] * len(errors)
+    magnitudes = list(errors)
+    return [zeros, magnitudes] if direction == 'top' else [magnitudes, zeros]
 
 
 def _secondary_axis_config(config: PlotConfig) -> PlotConfig:
@@ -1297,11 +1310,12 @@ def plot_bars(dataset: Dataset, config: PlotConfig | None = None) -> Figure:
         tag_bars(fig, bars, [sample.name for sample in target_samples])
 
         # Error bars follow each subset onto the axis its values are measured against.
+        directional_errors = _directional_errors(target_errors, settings.error_bar_direction)
         if horizontal:
             target_ax.errorbar(
                 target_means,
                 target_centers,
-                xerr=target_errors,
+                xerr=directional_errors,
                 fmt='none',
                 ecolor=ERROR_COLOR,
                 elinewidth=bar_width,
@@ -1313,7 +1327,7 @@ def plot_bars(dataset: Dataset, config: PlotConfig | None = None) -> Figure:
             target_ax.errorbar(
                 target_centers,
                 target_means,
-                yerr=target_errors,
+                yerr=directional_errors,
                 fmt='none',
                 ecolor=ERROR_COLOR,
                 elinewidth=bar_width,
@@ -1683,7 +1697,7 @@ def plot_scatter(dataset: Dataset, config: PlotConfig | None = None) -> Figure:
             drawn = target_ax.errorbar(
                 x_values,
                 y_values,
-                yerr=errors,
+                yerr=_directional_errors(errors, settings.error_bar_direction),
                 fmt=marker,
                 linestyle='-' if one.name in connected else 'none',
                 color=color,

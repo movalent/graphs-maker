@@ -29,6 +29,7 @@ from src.models import (
     ORIENTATIONS,
     POINT_LABELS,
     POINT_TYPES,
+    ErrorBarDirection,
     ErrorKind,
     Orientation,
 )
@@ -49,6 +50,8 @@ DEFAULT_ORIENTATION: Orientation = 'vertical'
 # The error bars a bar graph can carry, and the caption each is offered under.
 ERROR_CHOICES: dict[str, ErrorKind] = {'SD': 'sd', 'SEM': 'sem', 'None': 'none'}
 ERROR_LABELS: dict[ErrorKind, str] = {'sd': 'SD', 'sem': 'SEM', 'none': 'None'}
+ERROR_DIRECTION_CHOICES: dict[str, ErrorBarDirection] = {'Top': 'top', 'Bottom': 'bottom', 'Both': 'both'}
+ERROR_DIRECTION_LABELS: dict[ErrorBarDirection, str] = {'top': 'Top', 'bottom': 'Bottom', 'both': 'Both'}
 # The shape a point is drawn as. The choices themselves are held in ``src.models``, beside the
 # markers they stand for, so the caption in the window and the mark drawn cannot drift apart.
 POINT_TYPE_CHOICES: tuple[str, ...] = tuple(POINT_LABELS[one] for one in POINT_TYPES)
@@ -74,6 +77,7 @@ class StyleTabMixin(_AppBase):
         self._refresh_groups()
         config = self.state.config
         self.error_var.set(ERROR_LABELS[config.error_kind])
+        self.error_direction_var.set(ERROR_DIRECTION_LABELS[config.error_bar_direction])
         self.color_by_var.set(config.color_by.title())
         self.palette_key_var.set(config.palette)
         self._show_palette_swatch(config.palette)
@@ -156,6 +160,17 @@ class StyleTabMixin(_AppBase):
         option_row(
             panel,
             ('Error bars', self.error_var, ('SD', 'SEM', 'None'), self._update_error),
+            (None, None, (), None),
+        )
+        self.error_direction_var = tk.StringVar(value='Both')
+        option_row(
+            panel,
+            (
+                'Error bar direction',
+                self.error_direction_var,
+                ('Top', 'Bottom', 'Both'),
+                self._update_error_direction,
+            ),
             (None, None, (), None),
         )
 
@@ -835,6 +850,12 @@ class StyleTabMixin(_AppBase):
     def _update_error(self, _event: object = None) -> None:
         """Apply the chosen error bar statistic."""
         self.state.config.error_kind = ERROR_CHOICES[self.error_var.get()]
+        self.redraw()
+    def _update_error_direction(self, _event: object = None) -> None:
+        """Apply which end of each error bar is drawn."""
+        if self.syncing:
+            return
+        self.state.config.error_bar_direction = ERROR_DIRECTION_CHOICES[self.error_direction_var.get()]
         self.redraw()
     def _pick_color(self) -> None:
         """Open the colour chooser for the selected sample.

@@ -76,6 +76,14 @@ class PreferencesDialog:
         )
         self._choice(
             graph,
+            'Error bar direction',
+            'default_error_bar_direction',
+            ('Top', 'Bottom', 'Both'),
+            {'Top': 'top', 'Bottom': 'bottom', 'Both': 'both'},
+            preferences.default_error_bar_direction,
+        )
+        self._choice(
+            graph,
             'Color by',
             'default_color_by',
             ('Sample', 'Group'),
@@ -216,6 +224,8 @@ class PreferencesDialog:
                 value = ORIENTATION_LABELS[value]
             elif name == 'default_error_kind':
                 value = {'sd': 'SD', 'sem': 'SEM', 'none': 'None'}[value]
+            elif name == 'default_error_bar_direction':
+                value = {'top': 'Top', 'bottom': 'Bottom', 'both': 'Both'}[value]
             elif name == 'default_color_by':
                 value = {'sample': 'Sample', 'group': 'Group'}[value]
             elif name == 'default_palette':
@@ -233,6 +243,7 @@ class PreferencesDialog:
             'default_chart': {CHART_LABELS[kind]: kind for kind in SAMPLE_CHARTS},
             'default_orientation': {label: value for value, label in ORIENTATION_LABELS.items()},
             'default_error_kind': {'SD': 'sd', 'SEM': 'sem', 'None': 'none'},
+            'default_error_bar_direction': {'Top': 'top', 'Bottom': 'bottom', 'Both': 'both'},
             'default_color_by': {'Sample': 'sample', 'Group': 'group'},
             'default_palette': {palette.label: palette.key for palette in PALETTES.values()},
             'default_legend_position': {

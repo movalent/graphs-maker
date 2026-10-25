@@ -16,6 +16,7 @@ def test_preferences_round_trip(tmp_path: Path) -> None:
         default_chart='violin',
         default_orientation='horizontal',
         default_error_kind='sem',
+        default_error_bar_direction='top',
         default_color_by='group',
         default_show_points=False,
         default_jitter=0.35,
@@ -88,6 +89,7 @@ def test_new_graph_and_reset_use_application_graph_defaults() -> None:
         default_chart='box_violin',
         default_orientation='horizontal',
         default_error_kind='sem',
+        default_error_bar_direction='bottom',
         default_color_by='group',
         default_show_points=False,
         default_jitter=0.4,
@@ -102,6 +104,7 @@ def test_new_graph_and_reset_use_application_graph_defaults() -> None:
     assert state.config.chart == 'box_violin'
     assert state.config.orientation == 'horizontal'
     assert state.config.error_kind == 'sem'
+    assert state.config.error_bar_direction == 'bottom'
     assert state.config.color_by == 'group'
     assert state.config.show_points is False
     assert state.config.jitter == 0.4
@@ -116,6 +119,7 @@ def test_new_graph_and_reset_use_application_graph_defaults() -> None:
 
     assert state.config.chart == 'box_violin'
     assert state.config.orientation == 'horizontal'
+    assert state.config.error_bar_direction == 'bottom'
     assert state.config.palette == 'okabe_ito'
 
 

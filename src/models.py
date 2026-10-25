@@ -11,6 +11,7 @@ from typing import Literal
 from src.graphpad_style import DEFAULT_LINE_WIDTH, DEFAULT_PALETTE, FALLBACK_FONTS
 
 ErrorKind = Literal['sd', 'sem', 'none']
+ErrorBarDirection = Literal['top', 'bottom', 'both']
 ColorBy = Literal['sample', 'group']
 # Which way round the graph is drawn. ``vertical`` is the Prism default, where the
 # measurements run up the value axis and the sample names run along the bottom. The other two
@@ -377,6 +378,7 @@ class PlotConfig:
         title_font: Font family of the title, or ``None`` for the family the whole figure
             uses.
         error_kind: Statistic used for the error bars.
+        error_bar_direction: Which value-axis direction(s) carry error bars.
         color_by: Whether palette colours follow individual samples or whole groups.
         palette: Key of the colour palette used for samples with no colour of their own.
         grouped_layout: Leave the wider Prism gap between groups and list each group once in
@@ -497,6 +499,7 @@ class PlotConfig:
     title_position: TitlePosition = DEFAULT_TITLE_POSITION
     title_font: str | None = None
     error_kind: ErrorKind = 'sd'
+    error_bar_direction: ErrorBarDirection = 'both'
     color_by: ColorBy = 'sample'
     palette: str = DEFAULT_PALETTE
     grouped_layout: bool = False

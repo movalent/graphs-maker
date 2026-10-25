@@ -125,10 +125,12 @@ def test_preferences_dialog_has_four_tabs_and_applies_values() -> None:
     dialog._reset()
     assert dialog._read_preferences() == Preferences()
     dialog._strings['default_chart'].set('Box plot')
+    dialog._strings['default_error_bar_direction'].set('Top')
 
     assert len(notebook.tabs()) == 4
     assert dialog._apply_changes()
     assert applied[0].default_chart == 'box'
+    assert applied[0].default_error_bar_direction == 'top'
 
     dialog.window.destroy()
     root.destroy()
@@ -2813,6 +2815,8 @@ def test_controls_update_the_state(app: GraphPadApp) -> None:
     app._update_log()
     app.error_var.set('SEM')
     app._update_error()
+    app.error_direction_var.set('Top')
+    app._update_error_direction()
     app.color_by_var.set('Group')
     app._update_color_by()
     app.points_var.set(False)
@@ -2821,9 +2825,17 @@ def test_controls_update_the_state(app: GraphPadApp) -> None:
 
     assert app.state.config.log_axis is True
     assert app.state.config.error_kind == 'sem'
+    assert app.state.config.error_bar_direction == 'top'
     assert app.state.config.color_by == 'group'
     assert app.state.config.show_points is False
     assert app.state.config.jitter == pytest.approx(0.4)
+
+
+def test_error_bar_direction_is_available_in_style_tab(app: GraphPadApp) -> None:
+    style = _captions_in(_tab_frame(app, 2))
+
+    assert 'Error bar direction' in style
+    assert app.error_direction_var.get() == 'Both'
 
 
 def _drawn_bar_color(app: GraphPadApp, index: int) -> str:

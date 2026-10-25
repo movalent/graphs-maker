@@ -180,6 +180,7 @@ class AppState:
         self.config.chart = 'scatter' if self.dataset.series else settings.default_chart
         self.config.orientation = settings.default_orientation
         self.config.error_kind = settings.default_error_kind
+        self.config.error_bar_direction = settings.default_error_bar_direction
         self.config.color_by = settings.default_color_by
         self.config.palette = settings.default_palette
         self.config.jitter = settings.default_jitter
@@ -970,6 +971,7 @@ class AppState:
         self.config.title_position = DEFAULT_TITLE_POSITION
         self.config.title_font = None
         self.config.error_kind = settings.default_error_kind
+        self.config.error_bar_direction = settings.default_error_bar_direction
         self.config.grouped_layout = False
         self.config.jitter = settings.default_jitter
         self.config.show_points = settings.default_show_points

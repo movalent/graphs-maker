@@ -17,6 +17,7 @@ from src.models import (
     SAMPLE_CHARTS,
     ChartKind,
     ColorBy,
+    ErrorBarDirection,
     ErrorKind,
     LegendPosition,
     Orientation,
@@ -33,6 +34,7 @@ class Preferences:
     default_chart: ChartKind = 'bar'
     default_orientation: Orientation = 'vertical'
     default_error_kind: ErrorKind = 'sd'
+    default_error_bar_direction: ErrorBarDirection = 'both'
     default_color_by: ColorBy = 'sample'
     default_show_points: bool = True
     default_jitter: float = 0.0
@@ -175,6 +177,7 @@ def _validators() -> dict[str, Callable[[object], bool]]:
         'default_chart': choice(SAMPLE_CHARTS),
         'default_orientation': choice(ORIENTATIONS),
         'default_error_kind': choice(('sd', 'sem', 'none')),
+        'default_error_bar_direction': choice(('top', 'bottom', 'both')),
         'default_color_by': choice(('sample', 'group')),
         'default_show_points': is_bool,
         'default_jitter': is_jitter,

@@ -39,6 +39,7 @@ from src.models import (
     SOLID_POINTS,
     ChartKind,
     Dataset,
+    ErrorBarDirection,
     LegendPosition,
     Orientation,
     PlotConfig,
@@ -1436,6 +1437,62 @@ def test_plot_draws_bars_error_bars_and_points(simple_dataset: Dataset) -> None:
     assert ax.get_ylabel() == 'Value'
     assert len(marker_lines(ax)) == 3
     assert ax.get_legend() is not None
+
+
+@pytest.mark.parametrize(
+    ('direction', 'expected'),
+    (
+        ('top', (11.0, 11.0 + 2**0.5)),
+        ('bottom', (11.0 - 2**0.5, 11.0)),
+        ('both', (11.0 - 2**0.5, 11.0 + 2**0.5)),
+    ),
+)
+def test_bar_error_direction_selects_value_axis_ends(
+    simple_dataset: Dataset,
+    direction: ErrorBarDirection,
+    expected: tuple[float, float],
+) -> None:
+    figure = plot_dataset(simple_dataset, PlotConfig(error_bar_direction=direction))
+    axes = axes_of(figure)
+    error_collection = next(item for item in axes.collections if isinstance(item, LineCollection))
+    segments = error_collection.get_segments()
+
+    assert (segments[0][0, 1], segments[0][1, 1]) == pytest.approx(expected)
+
+
+def test_horizontal_bar_error_direction_follows_value_axis(simple_dataset: Dataset) -> None:
+    figure = plot_dataset(
+        simple_dataset,
+        PlotConfig(orientation='horizontal', error_bar_direction='top'),
+    )
+    axes = axes_of(figure)
+    error_collection = next(item for item in axes.collections if isinstance(item, LineCollection))
+    segment = error_collection.get_segments()[0]
+
+    assert segment[0, 0] == pytest.approx(11.0)
+    assert segment[1, 0] == pytest.approx(11.0 + 2**0.5)
+
+
+def test_scatter_error_direction_selects_value_axis_end() -> None:
+    dataset = Dataset(
+        samples=(),
+        series=(
+            XYSeries('Response', (XYPoint(1.0, 10.0), XYPoint(1.0, 12.0), XYPoint(2.0, 14.0))),
+        ),
+    )
+    figure = plot_dataset(dataset, PlotConfig(chart='scatter', error_bar_direction='top'))
+    axes = axes_of(figure)
+    error_collection = next(item for item in axes.collections if isinstance(item, LineCollection))
+    segments = error_collection.get_segments()
+    vertical = [
+        segment
+        for segment in segments
+        if segment[0, 0] == pytest.approx(1.0) and segment[1, 0] == pytest.approx(1.0)
+    ]
+
+    assert vertical
+    assert min(float(value) for segment in vertical for value in segment[:, 1]) == pytest.approx(11.0)
+    assert max(float(value) for segment in vertical for value in segment[:, 1]) == pytest.approx(11.0 + 2**0.5)
 
 
 def test_points_can_be_hidden(simple_dataset: Dataset) -> None:
