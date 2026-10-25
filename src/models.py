@@ -369,6 +369,7 @@ class PlotConfig:
         sample_order: Desired sample order, by sample name.
         series_order: Desired scatter-series order, by series name.
         log_axis: Render the value axis on a logarithmic scale.
+        minor_ticks: Whether minor ticks are shown on the graph's visible axes.
         title: Optional figure title.
         title_position: Where the title is written relative to the plot, which is centred
             above it. The title is drawn inside the figure, so it stays visible whether or
@@ -481,6 +482,7 @@ class PlotConfig:
     group_overrides: dict[str, str] = field(default_factory=dict)
     sample_order: tuple[str, ...] = ()
     log_axis: bool = False
+    minor_ticks: bool = False
     secondary_y_axis_enabled: bool = False
     secondary_y_axis_samples: tuple[str, ...] = ()
     secondary_y_axis_series: tuple[str, ...] = ()

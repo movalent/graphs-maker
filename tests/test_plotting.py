@@ -1448,6 +1448,61 @@ def test_log_axis_is_applied(simple_dataset: Dataset) -> None:
     assert axes_of(figure).get_yscale() == 'log'
 
 
+def test_minor_ticks_are_off_by_default(simple_dataset: Dataset) -> None:
+    axes = axes_of(plot_dataset(simple_dataset))
+
+    assert axes.yaxis.get_minorticklocs().size == 0
+
+
+def test_minor_ticks_are_shown_on_scatter_axes(scatter_dataset: Dataset) -> None:
+    figure = plot_dataset(scatter_dataset, PlotConfig(chart='scatter', minor_ticks=True))
+    axes = axes_of(figure)
+
+    assert axes.xaxis.get_minorticklocs().size > 0
+    assert axes.yaxis.get_minorticklocs().size > 0
+
+
+def test_minor_ticks_are_shown_on_logarithmic_axis(simple_dataset: Dataset) -> None:
+    axes = axes_of(plot_dataset(simple_dataset, PlotConfig(log_axis=True, minor_ticks=True)))
+
+    assert axes.yaxis.get_minorticklocs().size > 0
+
+
+@pytest.mark.parametrize(
+    ('config', 'axis_name'),
+    (
+        (PlotConfig(minor_ticks=True), 'y'),
+        (PlotConfig(minor_ticks=True, orientation='horizontal'), 'x'),
+        (PlotConfig(chart='box', minor_ticks=True), 'y'),
+        (PlotConfig(chart='violin', minor_ticks=True), 'y'),
+        (PlotConfig(chart='box_violin', minor_ticks=True), 'y'),
+    ),
+)
+def test_minor_ticks_are_shown_on_summary_value_axes(
+    simple_dataset: Dataset,
+    config: PlotConfig,
+    axis_name: str,
+) -> None:
+    axes = axes_of(plot_dataset(simple_dataset, config))
+
+    assert getattr(axes, f'{axis_name}axis').get_minorticklocs().size > 0
+
+
+def test_minor_ticks_are_shown_on_enabled_secondary_y_axis(simple_dataset: Dataset) -> None:
+    figure = plot_dataset(
+        simple_dataset,
+        PlotConfig(
+            minor_ticks=True,
+            secondary_y_axis_enabled=True,
+            secondary_y_axis_samples=('Other',),
+        ),
+    )
+    primary, secondary = figure.axes
+
+    assert primary.yaxis.get_minorticklocs().size > 0
+    assert secondary.yaxis.get_minorticklocs().size > 0
+
+
 def test_secondary_y_axis_is_off_by_default(simple_dataset: Dataset) -> None:
     assert len(plot_dataset(simple_dataset).axes) == 1
 

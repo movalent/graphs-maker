@@ -56,6 +56,7 @@ class AxisTabMixin(_AppBase):
     def _sync_axis(self) -> None:
         """Put the two axis blocks back, showing the settings that are really in use."""
         config = self.state.config
+        self.minor_ticks_var.set(config.minor_ticks)
         self.log_var.set('Log' if config.log_axis else 'Linear')
         # The field shows the title in use, which is the override when there is one and the
         # sheet's own title otherwise, so the user can see and edit what is drawn.
@@ -115,6 +116,14 @@ class AxisTabMixin(_AppBase):
             ('Axis line width', self.axis_width_var, (), self._update_line_width),
             ('Axis font type', self.axis_font_type_var, FONT_CHOICES, None),
         )
+        self.minor_ticks_var = tk.BooleanVar(value=False)
+        self.minor_ticks_check = ttk.Checkbutton(
+            tab,
+            text='Show minor ticks',
+            variable=self.minor_ticks_var,
+            command=self._update_minor_ticks,
+        )
+        self.minor_ticks_check.pack(anchor=tk.W, pady=(4, 0))
 
         self._build_x_axis(section(tab, 'X axis'))
         self._build_y_axis(section(tab, 'Y axis'))
@@ -443,6 +452,13 @@ class AxisTabMixin(_AppBase):
         # The sheet's own title is what the graph already says, so typing it back is not an
         # override. Storing it as one would make a later change to the sheet invisible.
         self.state.config.y_label = None if text == self.state.dataset.y_label else text or None
+        self.redraw()
+
+    def _update_minor_ticks(self) -> None:
+        """Apply whether minor ticks are shown on the visible axes."""
+        if self.syncing:
+            return
+        self.state.config.minor_ticks = bool(self.minor_ticks_var.get())
         self.redraw()
 
     def _update_axis(self, _event: object = None) -> None:

@@ -16,7 +16,7 @@ from matplotlib.collections import PolyCollection
 from matplotlib.container import BarContainer
 from matplotlib.figure import Figure
 from matplotlib.patches import Patch
-from matplotlib.ticker import MultipleLocator
+from matplotlib.ticker import AutoMinorLocator, LogLocator, MultipleLocator
 from matplotlib.transforms import blended_transform_factory
 
 from src.curve_fitting import CurveFit, fit_polynomial
@@ -383,6 +383,26 @@ def _finish_value_axis(ax: Axes, dataset: Dataset, config: PlotConfig, horizonta
     ax.grid(False)
     _apply_font_sizes(ax, config)
     _apply_axis_line_width(ax, config)
+
+
+def _apply_minor_ticks(ax: Axes, config: PlotConfig, *, x_axis: bool = True, y_axis: bool = True) -> None:
+    """Show minor tick marks on the requested linear or logarithmic axes."""
+    if not config.minor_ticks:
+        return
+    axis_names: tuple[Literal['x', 'y'], ...] = ('x', 'y')
+    for name, enabled in zip(axis_names, (x_axis, y_axis), strict=True):
+        if not enabled:
+            continue
+        axis = ax.xaxis if name == 'x' else ax.yaxis
+        if len(axis.get_majorticklocs()) < 2:
+            continue
+        if axis.get_scale() == 'linear':
+            axis.set_minor_locator(AutoMinorLocator())
+        elif axis.get_scale() == 'log':
+            axis.set_minor_locator(LogLocator(subs='auto'))
+        else:
+            continue
+        ax.tick_params(axis=name, which='minor', length=2.0)
 
 
 def _secondary_axis_config(config: PlotConfig) -> PlotConfig:
@@ -1356,6 +1376,9 @@ def plot_bars(dataset: Dataset, config: PlotConfig | None = None) -> Figure:
         ax.set_ylim(layout.left, layout.right)
     else:
         ax.set_xlim(layout.left, layout.right)
+    _apply_minor_ticks(ax, settings)
+    if secondary_ax is not None:
+        _apply_minor_ticks(secondary_ax, settings, x_axis=False)
     _draw_reference_lines(ax, settings.reference_lines)
     if settings.show_legend:
         _add_legend(
@@ -1538,6 +1561,7 @@ def plot_distributions(dataset: Dataset, config: PlotConfig | None = None) -> Fi
         ax.set_ylim(layout.left, layout.right)
     else:
         ax.set_xlim(layout.left, layout.right)
+    _apply_minor_ticks(ax, settings)
     _draw_reference_lines(ax, settings.reference_lines)
     if settings.show_legend:
         _add_legend(
@@ -1713,6 +1737,9 @@ def plot_scatter(dataset: Dataset, config: PlotConfig | None = None) -> Figure:
     # The x label is written after the shared axis finishing, because that helper clears the
     # x label for a bar graph, where the samples are named along that axis instead.
     ax.set_xlabel(settings.x_label_override or dataset.x_label)
+    _apply_minor_ticks(ax, settings)
+    if secondary_ax is not None:
+        _apply_minor_ticks(secondary_ax, settings, x_axis=False)
     if settings.curve_fit_enabled:
         degree = 1 if settings.curve_fit_model == 'linear' else settings.curve_fit_degree
         for one, color, alpha in zip(series, colors, alphas, strict=True):

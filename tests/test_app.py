@@ -2313,6 +2313,17 @@ def test_the_swatch_shows_the_selected_colour(app: GraphPadApp) -> None:
 def test_the_axis_fields_are_on_the_axis_tab(app: GraphPadApp) -> None:
     assert app.tabs.index('current') == 0
     assert app.y_max_var.get() != ''
+    assert 'Show minor ticks' in _captions_in(_tab_frame(app, 1))
+
+
+def test_minor_ticks_can_be_toggled_from_the_axis_tab(app: GraphPadApp) -> None:
+    assert not app.state.config.minor_ticks
+
+    app.minor_ticks_check.invoke()
+
+    assert app.state.config.minor_ticks
+    assert app.minor_ticks_var.get()
+    assert app.canvas.figure.axes[0].yaxis.get_minorticklocs().size > 0
 
 
 def test_the_sample_list_does_not_cover_the_controls_below(app: GraphPadApp) -> None:
